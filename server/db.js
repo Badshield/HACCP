@@ -135,6 +135,15 @@ CREATE TABLE IF NOT EXISTS labels (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+CREATE TABLE IF NOT EXISTS shelf_life_presets (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  product TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('opened','prepared','defrosted')),
+  days INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS recipes (
   id INTEGER PRIMARY KEY,
   org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -195,12 +204,38 @@ CREATE INDEX IF NOT EXISTS idx_recep_org_date ON receptions(org_id, received_at)
 CREATE INDEX IF NOT EXISTS idx_nc_org_status ON non_conformities(org_id, status);
 `;
 
+/** Colonnes ajoutées après la première version : ajoutées aux bases existantes. */
+const ADDED_COLUMNS = {
+  organizations: {
+    trial_ends_at: 'TEXT',
+    subscription_status: 'TEXT',
+    stripe_customer_id: 'TEXT',
+    stripe_subscription_id: 'TEXT',
+    current_period_end: 'TEXT',
+  },
+};
+
+function migrate(db) {
+  for (const [table, cols] of Object.entries(ADDED_COLUMNS)) {
+    const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const [name, type] of Object.entries(cols)) {
+      if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
+  }
+  // Les établissements créés avant la facturation démarrent un essai à la migration.
+  db.prepare("UPDATE organizations SET trial_ends_at = ? WHERE trial_ends_at IS NULL")
+    .run(new Date(Date.now() + 30 * 86400000).toISOString());
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_org_customer ON organizations(stripe_customer_id)
+    WHERE stripe_customer_id IS NOT NULL`);
+}
+
 function openDb(file = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'haccp.db')) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

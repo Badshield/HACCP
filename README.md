@@ -20,6 +20,8 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 🥜 **Allergènes** | Tableau des 14 allergènes réglementaires (INCO) par plat, imprimable pour la salle. |
 | 🎓 **Formations** | Suivi des formations hygiène du personnel et de leurs échéances. |
 | 📄 **Rapports** | Classeur HACCP PDF complet ou par registre, exports CSV (Excel). |
+| 🧩 **Modèles de métiers** | À l'inscription : restaurant, boulangerie, boucherie, traiteur, food-truck ou restauration collective. Équipements, plan de nettoyage et durées de vie préremplis. |
+| 💳 **Abonnements** | Essai gratuit de 30 jours, paiement Stripe, portail client, lecture seule sans abonnement (voir [docs/STRIPE.md](docs/STRIPE.md)). |
 | 📊 **Tableau de bord** | Équipements à relever, nettoyages en retard, NC ouvertes, taux de conformité sur 30 jours. |
 
 ### Points forts pour un usage professionnel
@@ -53,6 +55,8 @@ docker build -t haccp .
 docker run -d -p 3000:3000 -e JWT_SECRET="$(openssl rand -hex 32)" -v haccp-data:/app/data haccp
 ```
 
+Pour activer les paiements, suivez [docs/STRIPE.md](docs/STRIPE.md).
+
 Placez l'application derrière un reverse proxy HTTPS (Caddy, Nginx, Traefik) et définissez `TRUST_PROXY=1`. Voir `.env.example` pour toutes les variables. **Sauvegardez régulièrement le dossier `data/`** : il contient la base de données.
 
 ## Architecture
@@ -65,6 +69,8 @@ server/
   resource.js   moteur générique : validation, isolation par client, registres en ajout seul
   rules.js      règles de conformité réglementaires (fonctions pures, testées)
   reports.js    exports PDF / CSV
+  billing.js    abonnements Stripe (Checkout, portail, webhook, lecture seule)
+  templates.js  modèles de démarrage par métier
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)

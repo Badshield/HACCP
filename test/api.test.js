@@ -25,7 +25,7 @@ async function signup(org, email) {
 }
 
 test.before(async () => {
-  const app = createApp(openDb(':memory:'));
+  const app = createApp(openDb(':memory:'), { billing: { stripe: null } });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });

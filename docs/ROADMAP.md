@@ -8,10 +8,10 @@ Tous les registres HACCP essentiels, multi-clients, rôles, non-conformités aut
 
 Indispensable avant d'encaisser des abonnements :
 
-- [ ] **Paiement et abonnements** (Stripe Billing) : essai gratuit de 14 ou 30 jours, puis blocage en lecture seule si l'abonnement n'est pas payé
+- [x] **Paiement et abonnements** (Stripe Billing) : essai gratuit de 30 jours, puis lecture seule si l'abonnement n'est pas payé
 - [ ] **Mot de passe oublié** et vérification de l'e-mail (envoi via Brevo, Postmark ou Resend)
 - [ ] **Rappels automatiques** : e-mail ou SMS si les températures ne sont pas relevées à l'heure prévue ou si une NC reste ouverte
-- [ ] **Modèles de démarrage par métier** (restaurant, boulangerie, boucherie, traiteur) : équipements, plan de nettoyage et durées de vie préremplis à l'inscription
+- [x] **Modèles de démarrage par métier** (restaurant, boulangerie, boucherie, traiteur, food-truck, collectivité) : équipements, plan de nettoyage et durées de vie préremplis à l'inscription
 - [ ] **Photos** jointes aux réceptions et aux non-conformités (bon de livraison, étiquette, produit)
 - [ ] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
 - [ ] **Sauvegardes automatiques** chiffrées et hors site (Litestream vers S3 pour SQLite)

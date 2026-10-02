@@ -79,6 +79,20 @@ function mountModules(api, db) {
     serialize: (r) => ({ ...r, allergens: JSON.parse(r.allergens || '[]') }),
   }));
 
+  api.use('/shelf-lives', resource(db, {
+    table: 'shelf_life_presets',
+    orderBy: 't.product',
+    fields: {
+      product: { type: 'string', required: true, label: 'Produit' },
+      kind: { type: 'enum', values: ['opened', 'prepared', 'defrosted'], required: true, label: 'Type' },
+      days: { type: 'int', required: true, label: 'Durée de vie (jours)' },
+      active: { type: 'bool', default: 1 },
+    },
+    compute(data) {
+      if (data.days != null && (data.days < 0 || data.days > 365)) throw new ValidationError('Durée de vie invalide');
+    },
+  }));
+
   api.use('/trainings', resource(db, {
     table: 'trainings',
     dateField: 'date',

@@ -1,6 +1,6 @@
 // Pack Hygiène HACCP – application monopage (sans dépendance, sans build).
 
-const state = { token: localStorage.getItem('token'), user: null, org: null, ref: null, openNc: 0 };
+const state = { token: localStorage.getItem('token'), user: null, org: null, access: null, ref: null, openNc: 0 };
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- utilitaires
@@ -73,7 +73,7 @@ function fieldHtml(f, value) {
   if (f.type === 'select') {
     const opts = (typeof f.options === 'function' ? f.options() : f.options)
       .map(([val, lab]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab)}</option>`).join('');
-    input = `<select name="${f.name}" ${req}>${f.required ? '' : '<option value="">—</option>'}${opts}</select>`;
+    input = `<select name="${f.name}" ${req}>${f.required ? '' : `<option value="">${esc(f.emptyLabel || '—')}</option>`}${opts}</select>`;
   } else if (f.type === 'textarea') {
     input = `<textarea name="${f.name}" ${req} placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
   } else {
@@ -416,7 +416,9 @@ const pages = {
   },
   labels: {
     title: 'Étiquettes DLC', icon: '🏷️', group: 'Traçabilité',
-    render: (main) => logPage({
+    render: async (main) => {
+      const presets = await api('/shelf-lives');
+      await logPage({
       title: 'Étiquettes de traçabilité (DLC secondaire)',
       intro: 'Produits entamés, fabriqués ou décongelés : la DLC secondaire est calculée automatiquement. Imprimez l\'étiquette après enregistrement.',
       endpoint: '/labels', register: 'labels',
@@ -437,7 +439,9 @@ const pages = {
         { label: '', html: (r) => `<button class="secondary small" onclick='window.printLabel(${esc(JSON.stringify(r))})'>Imprimer</button>` },
       ],
       after: (r) => window.printLabel(r),
-    })(main),
+      })(main);
+      if (presets.length) addPresetBar(main, presets);
+    },
   },
   pests: {
     title: 'Nuisibles', icon: '🐭', group: 'Traçabilité',
@@ -546,8 +550,45 @@ const pages = {
       ],
     }),
   },
+  'shelf-lives': {
+    title: 'Durées de vie', icon: '⏳', group: 'Gestion',
+    render: refPage({
+      title: 'Durées de vie (DLC secondaires)',
+      intro: 'Produits fréquents proposés sur la page Étiquettes. Durées indicatives : validez-les dans votre Plan de Maîtrise Sanitaire.',
+      endpoint: '/shelf-lives',
+      fields: [
+        { name: 'product', label: 'Produit', required: true },
+        { name: 'kind', label: 'Type', type: 'select', required: true, options: Object.entries(LABEL_KIND) },
+        { name: 'days', label: 'Durée de vie (jours, 0 = jour même)', type: 'number', step: '1', required: true },
+      ],
+      columns: [
+        { label: 'Produit', get: (r) => r.product },
+        { label: 'Type', get: (r) => LABEL_KIND[r.kind] },
+        { label: 'Durée', get: (r) => (r.days === 0 ? 'Jour même' : `${r.days} jour(s)`) },
+      ],
+    }),
+  },
+  billing: { title: 'Abonnement', icon: '💳', group: 'Gestion', role: 'admin', render: billingPage },
   settings: { title: 'Paramètres', icon: '⚙️', group: 'Gestion', render: settingsPage },
 };
+
+/** Boutons « produits fréquents » qui préremplissent le formulaire d'étiquette. */
+function addPresetBar(main, presets) {
+  const bar = document.createElement('div');
+  bar.className = 'card presets no-print';
+  bar.innerHTML = `<span class="muted">Produits fréquents :</span> ${presets.map((p) => `<button type="button" class="secondary small" data-preset="${p.id}">${esc(p.product)} · ${p.days === 0 ? 'jour même' : `J+${p.days}`}</button>`).join(' ')}`;
+  main.querySelector('[data-form]').closest('.card').before(bar);
+  bar.querySelectorAll('[data-preset]').forEach((b) => {
+    b.onclick = () => {
+      const p = presets.find((x) => x.id === Number(b.dataset.preset));
+      const form = main.querySelector('[data-form] form');
+      form.elements.product.value = p.product;
+      form.elements.kind.value = p.kind;
+      form.elements.shelf_life_days.value = p.days;
+      form.elements.lot_number.focus();
+    };
+  });
+}
 
 window.printLabel = (r) => {
   const w = window.open('', '_blank', 'width=420,height=360');
@@ -658,6 +699,46 @@ async function reportsPage(main) {
   main.querySelectorAll('[data-csv]').forEach((b) => { b.onclick = () => download(`/reports/${b.dataset.csv}.csv?${q()}`, `${b.dataset.csv}.csv`); });
 }
 
+async function billingPage(main) {
+  if (location.hash.includes('checkout=success')) {
+    main.innerHTML = '<h1>Abonnement</h1><div class="card"><p>✅ Paiement reçu, merci ! Activation de votre abonnement…</p></div>';
+    // Stripe confirme l'abonnement par webhook : on attend quelques secondes.
+    for (let i = 0; i < 10 && state.access?.state !== 'active'; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      await loadSession();
+    }
+    history.replaceState(null, '', '#/billing');
+    renderBanner();
+  }
+  const b = await api('/billing');
+  const a = b.access;
+  const STATUS = {
+    unlimited: ['info', 'Accès illimité (facturation non configurée sur ce serveur)'],
+    trial: ['info', `Essai gratuit : ${a.trialDaysLeft} jour(s) restant(s), jusqu'au ${fmtD(a.trialEndsAt)}`],
+    active: ['ok', `Abonnement ${b.plans.find((p) => p.key === a.plan)?.label || ''} actif${a.currentPeriodEnd ? `, renouvellement le ${fmtD(a.currentPeriodEnd)}` : ''}`],
+    past_due: ['warn', 'Paiement en échec : mettez à jour votre moyen de paiement pour éviter la suspension'],
+    expired: ['bad', 'Aucun abonnement actif : votre compte est en lecture seule'],
+  };
+  const [cls, text] = STATUS[a.state];
+  const subscribed = a.state === 'active' || a.state === 'past_due';
+  main.innerHTML = `<h1>Abonnement</h1>
+    <div class="card"><div class="row"><span class="pill ${cls}">${esc(text)}</span><span class="spacer"></span>
+      ${b.hasCustomer && b.enabled ? '<button class="secondary" data-portal>Gérer mon abonnement et mes factures</button>' : ''}</div></div>
+    ${b.enabled && !subscribed ? `<div class="plans">${b.plans.map((p) => `<div class="card plan ${p.key === 'pro' ? 'featured' : ''}">
+        <h2>${esc(p.label)}</h2><div class="price">${p.price} € <small>HT / mois</small></div>
+        <ul>${p.features.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+        <button data-plan="${p.key}">Choisir ${esc(p.label)}</button></div>`).join('')}</div>
+      <p class="muted">Paiement sécurisé par Stripe. Sans engagement, résiliable à tout moment depuis le portail. Vos données restent consultables et exportables même sans abonnement.</p>` : ''}
+    ${subscribed ? '<p class="muted">Pour changer d\'offre, mettre à jour votre carte ou télécharger vos factures, utilisez « Gérer mon abonnement ».</p>' : ''}`;
+  const go = async (path, body) => {
+    try { const r = await api(path, { method: 'POST', body }); location.href = r.url; } catch (e) { toast(e.message, true); }
+  };
+  main.querySelector('[data-portal]')?.addEventListener('click', () => go('/billing/portal'));
+  main.querySelectorAll('[data-plan]').forEach((btn) => {
+    btn.onclick = () => { btn.disabled = true; go('/billing/checkout', { plan: btn.dataset.plan }).finally(() => { btn.disabled = false; }); };
+  });
+}
+
 async function settingsPage(main) {
   const orgFields = [
     { name: 'name', label: 'Nom de l\'établissement', required: true },
@@ -677,12 +758,26 @@ async function settingsPage(main) {
   ];
   main.innerHTML = `<h1>Paramètres</h1>
     ${can('admin') ? '<div class="card"><h2>Établissement</h2><div data-org></div></div>' : ''}
+    ${can('admin') ? `<div class="card"><h2>Modèle de métier</h2>
+      <p class="muted">Ajoute les équipements, le plan de nettoyage et les durées de vie types d'un métier. Les éléments déjà présents ne sont pas dupliqués.</p>
+      <div class="row"><select data-template style="width:auto"></select><button class="secondary" data-apply>Ajouter les éléments du modèle</button></div></div>` : ''}
     ${can('manager') ? '<div class="card"><div class="row"><h2>Utilisateurs</h2><span class="spacer"></span>' + (can('admin') ? '<button data-add-user>+ Ajouter</button>' : '') + '</div><div data-users></div></div>' : ''}
     <div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>`;
   const orgBox = main.querySelector('[data-org]');
   if (orgBox) {
     orgBox.innerHTML = formHtml(orgFields, state.org);
     bindForm(orgBox, orgFields, async (data) => { state.org = await api('/organization', { method: 'PUT', body: data }); toast('Enregistré ✓'); renderShell(); });
+  }
+  const tplSelect = main.querySelector('[data-template]');
+  if (tplSelect) {
+    const templates = await api('/templates');
+    tplSelect.innerHTML = templates.map((t) => `<option value="${t.key}">${esc(t.label)}</option>`).join('');
+    main.querySelector('[data-apply]').onclick = async () => {
+      try {
+        const c = await api('/organization/template', { method: 'POST', body: { template: tplSelect.value } });
+        toast(`Ajouté : ${c.equipment} équipement(s), ${c.cleaning} tâche(s) de nettoyage, ${c.shelfLives} durée(s) de vie`);
+      } catch (e) { toast(e.message, true); }
+    };
   }
   const pwBox = main.querySelector('[data-pw]');
   pwBox.innerHTML = formHtml(pwFields, {}, 'Changer');
@@ -717,11 +812,16 @@ function logout() {
   route();
 }
 
-function authPage(mode = 'login') {
+async function authPage(mode = 'login') {
   const signup = mode === 'signup';
+  const templates = signup ? await api('/templates').catch(() => []) : [];
   const fields = signup
     ? [
       { name: 'organization', label: 'Nom de l\'établissement', required: true, full: true },
+      {
+        name: 'template', label: 'Votre métier (préremplit équipements, nettoyage et durées de vie)', type: 'select', full: true,
+        default: 'restaurant', emptyLabel: 'Autre : partir de zéro', options: templates.map((t) => [t.key, t.label]),
+      },
       { name: 'name', label: 'Votre nom', required: true, full: true },
       { name: 'email', label: 'E-mail', type: 'email', required: true, full: true },
       { name: 'password', label: 'Mot de passe (8 caractères min.)', type: 'password', required: true, full: true },
@@ -732,7 +832,7 @@ function authPage(mode = 'login') {
     ];
   app.innerHTML = `<div class="auth"><div class="card">
     <h1><img src="/icon.svg" width="32" height="32" alt=""> Pack Hygiène HACCP</h1>
-    <p class="muted">${signup ? 'Créez votre espace en 1 minute.' : 'Connectez-vous à votre espace.'}</p>
+    <p class="muted">${signup ? 'Créez votre espace en 1 minute. 30 jours d\'essai gratuit, sans carte bancaire.' : 'Connectez-vous à votre espace.'}</p>
     <div data-form></div>
     <p class="muted">${signup ? 'Déjà inscrit ? <a href="#/login">Se connecter</a>' : 'Nouveau client ? <a href="#/signup">Créer un compte</a>'}</p>
   </div></div>`;
@@ -743,7 +843,7 @@ function authPage(mode = 'login') {
     state.token = res.token;
     localStorage.setItem('token', res.token);
     await loadSession();
-    location.hash = signup ? '#/equipment' : '#/dashboard';
+    location.hash = signup ? (data.template ? '#/temperatures' : '#/equipment') : '#/dashboard';
     route();
   });
 }
@@ -752,6 +852,7 @@ async function loadSession() {
   const [me, ref] = await Promise.all([api('/me'), state.ref ? state.ref : api('/reference')]);
   state.user = me.user;
   state.org = me.organization;
+  state.access = me.access;
   state.ref = ref;
 }
 
@@ -763,10 +864,22 @@ async function refreshBadge() {
   } catch { /* ignoré */ }
 }
 
+function renderBanner() {
+  const box = document.querySelector('[data-banner]');
+  if (!box) return;
+  const a = state.access || {};
+  const link = can('admin') ? ' <a href="#/billing">Voir les offres →</a>' : ' Contactez l\'administrateur de votre compte.';
+  let html = '';
+  if (a.state === 'expired') html = `<div class="banner bad">🔒 Votre essai ou votre abonnement est terminé : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div>`;
+  else if (a.state === 'past_due') html = `<div class="banner warn">⚠ Le dernier paiement a échoué.${can('admin') ? ' <a href="#/billing">Mettre à jour le moyen de paiement →</a>' : ''}</div>`;
+  else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">⏳ Plus que ${a.trialDaysLeft} jour(s) d'essai gratuit.${link}</div>`;
+  box.innerHTML = html;
+}
+
 function renderShell() {
   const current = (location.hash.slice(2) || 'dashboard').split('?')[0];
   let group = '';
-  const nav = Object.entries(pages).map(([key, p]) => {
+  const nav = Object.entries(pages).filter(([, p]) => !p.role || can(p.role)).map(([key, p]) => {
     const head = p.group !== group ? `<div class="nav-group">${esc((group = p.group))}</div>` : '';
     const badge = key === 'nonconformities' ? `<span class="badge" data-nc-badge ${state.openNc ? '' : 'hidden'}>${state.openNc}</span>` : '';
     return `${head}<a href="#/${key}" class="${key === current ? 'active' : ''}"><span>${p.icon}</span> ${esc(p.title)}${badge}</a>`;
@@ -777,7 +890,8 @@ function renderShell() {
       <div class="org-name">${esc(state.org?.name)}<br>${esc(state.user?.name)} · ${esc(ROLES[state.user?.role])}</div>
       ${nav}
       <div class="nav-group">Compte</div><a href="#" data-logout><span>🚪</span> Déconnexion</a>
-    </nav><main class="main" data-main></main></div>`;
+    </nav><main class="main"><div data-banner class="no-print"></div><div data-main></div></main></div>`;
+  renderBanner();
   app.querySelector('[data-logout]').onclick = (e) => { e.preventDefault(); logout(); };
   app.querySelector('[data-menu]').onclick = () => app.querySelector('.sidebar').classList.toggle('open');
   app.querySelectorAll('.sidebar a').forEach((a) => a.addEventListener('click', () => app.querySelector('.sidebar').classList.remove('open')));
@@ -787,10 +901,11 @@ function renderShell() {
 async function route() {
   const key = (location.hash.slice(2) || '').split('?')[0];
   if (!state.token) return authPage(key === 'signup' ? 'signup' : 'login');
+  if (key === 'login' || key === 'signup') { location.hash = '#/dashboard'; return; }
   try {
     if (!state.user) { await loadSession(); refreshBadge(); }
   } catch { return; }
-  const page = pages[key] || pages.dashboard;
+  const page = pages[key] && (!pages[key].role || can(pages[key].role)) ? pages[key] : pages.dashboard;
   const main = renderShell();
   main.innerHTML = '<p class="muted">Chargement…</p>';
   try { await page.render(main); } catch (e) { main.innerHTML = `<p class="pill bad">${esc(e.message)}</p>`; }

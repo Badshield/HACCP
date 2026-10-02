@@ -129,6 +129,19 @@ tr.nc td { background: var(--bad-soft); }
 dialog { border: 0; border-radius: var(--radius); padding: 1.25rem; width: min(640px, 95vw); }
 dialog::backdrop { background: rgba(15, 23, 42, .5); }
 
+/* Abonnement */
+.banner { padding: .7rem 1rem; border-radius: var(--radius); margin-bottom: 1rem; font-size: .95rem; }
+.banner.bad { background: var(--bad-soft); color: var(--bad); }
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+.plans { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.plan { display: grid; gap: .5rem; align-content: start; }
+.plan.featured { border: 2px solid var(--primary); }
+.plan .price { font-size: 2rem; font-weight: 800; }
+.plan .price small { font-size: .9rem; font-weight: 400; color: var(--muted); }
+.plan ul { margin: 0; padding-left: 1.2rem; }
+.plan button { justify-self: start; }
+.presets { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+
 /* Étiquette imprimable */
 .label-print {
   border: 2px dashed var(--text); border-radius: 8px; padding: .75rem; width: 300px; font-size: .9rem; background: #fff;

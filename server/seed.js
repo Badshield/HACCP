@@ -7,6 +7,8 @@
 const bcrypt = require('bcryptjs');
 const { openDb } = require('./db');
 const rules = require('./rules');
+const { TEMPLATES } = require('./templates');
+const { trialEnd } = require('./billing');
 
 function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
@@ -14,8 +16,8 @@ function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
     return;
   }
   db.transaction(() => {
-    const org = db.prepare('INSERT INTO organizations (name, address, activity, siret) VALUES (?,?,?,?)')
-      .run('Restaurant Le Bon Goût', '12 rue des Halles, 75001 Paris', 'Restauration traditionnelle', '12345678900012')
+    const org = db.prepare('INSERT INTO organizations (name, address, activity, siret, trial_ends_at) VALUES (?,?,?,?,?)')
+      .run('Restaurant Le Bon Goût', '12 rue des Halles, 75001 Paris', 'Restauration traditionnelle', '12345678900012', trialEnd())
       .lastInsertRowid;
     const hash = bcrypt.hashSync(password, 10);
     const addUser = db.prepare('INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?,?)');
@@ -84,6 +86,9 @@ function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
       new Date(Date.now() - 86400000 - 1800000).toISOString(), 8, 90, 1, cook);
     db.prepare(`INSERT INTO oil_checks (org_id, fryer, polar_percent, oil_changed, compliant, user_id, checked_at)
       VALUES (?,?,?,?,?,?,?)`).run(org, 'Friteuse 1', 18, 0, 1, cook, new Date(Date.now() - 86400000).toISOString());
+
+    const sl = db.prepare('INSERT INTO shelf_life_presets (org_id, product, kind, days) VALUES (?,?,?,?)');
+    for (const [product, kind, days] of TEMPLATES.restaurant.shelfLives) sl.run(org, product, kind, days);
 
     const recipe = db.prepare('INSERT INTO recipes (org_id, name, description, allergens) VALUES (?,?,?,?)');
     recipe.run(org, 'Blanquette de veau', 'Veau, carottes, champignons, crème, farine', JSON.stringify(['Gluten', 'Lait', 'Céleri']));

@@ -8,8 +8,17 @@ const { signToken, authenticate, requireRole } = require('./auth');
 const { coerce } = require('./resource');
 const { mountModules } = require('./modules');
 const { mountReports } = require('./reports');
+const { createBilling, trialEnd } = require('./billing');
+const { TEMPLATES, listTemplates, applyTemplate } = require('./templates');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const ORG_PRIVATE = ['stripe_customer_id', 'stripe_subscription_id'];
+function publicOrg(org) {
+  const out = { ...org };
+  for (const k of ORG_PRIVATE) delete out[k];
+  return out;
+}
 
 function publicUser(u) {
   return { id: u.id, org_id: u.org_id, email: u.email, name: u.name, role: u.role, active: u.active };
@@ -39,10 +48,13 @@ function loginLimiter({ max = 10, windowMs = 15 * 60000 } = {}) {
   };
 }
 
-function createApp(db) {
+function createApp(db, opts = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
+  const billing = createBilling(db, opts.billing);
+  // Le webhook Stripe doit recevoir le corps brut pour vérifier la signature.
+  app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billing.webhook);
   app.use(express.json({ limit: '1mb' }));
   app.use((req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
@@ -67,19 +79,24 @@ function createApp(db) {
     });
   });
 
+  api.get('/templates', (req, res) => res.json(listTemplates()));
+
   // Inscription d'un nouveau client : crée l'établissement et son administrateur.
   api.post('/auth/signup', (req, res) => {
-    const { organization, name, email, password } = req.body || {};
+    const { organization, name, email, password, template } = req.body || {};
     if (!organization || !name || !EMAIL_RE.test(email || '')) {
       return res.status(400).json({ error: 'Établissement, nom et e-mail valides requis' });
     }
+    if (template && !TEMPLATES[template]) return res.status(400).json({ error: 'Modèle de métier inconnu' });
     checkPassword(password);
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
       return res.status(409).json({ error: 'Un compte existe déjà avec cet e-mail' });
     }
     const hash = bcrypt.hashSync(password, 10);
     const user = db.transaction(() => {
-      const org = db.prepare('INSERT INTO organizations (name) VALUES (?)').run(String(organization).trim());
+      const org = db.prepare('INSERT INTO organizations (name, trial_ends_at) VALUES (?, ?)')
+        .run(String(organization).trim(), trialEnd());
+      if (template) applyTemplate(db, Number(org.lastInsertRowid), template);
       const info = db
         .prepare("INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?, 'admin')")
         .run(org.lastInsertRowid, email.trim(), hash, String(name).trim());
@@ -99,10 +116,18 @@ function createApp(db) {
 
   // ---------- Authentifié ----------
   api.use(authenticate(db));
+  api.use(billing.guard);
 
   api.get('/me', (req, res) => {
     const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.user.org_id);
-    res.json({ user: publicUser(req.user), organization: org });
+    res.json({ user: publicUser(req.user), organization: publicOrg(org), access: billing.access(org) });
+  });
+
+  api.use('/billing', billing.router);
+
+  // Réapplique un modèle de métier (ajoute uniquement les éléments manquants).
+  api.post('/organization/template', requireRole('admin'), (req, res) => {
+    res.json(applyTemplate(db, req.user.org_id, req.body?.template));
   });
 
   api.put('/me/password', (req, res) => {
@@ -126,8 +151,18 @@ function createApp(db) {
     };
     db.prepare('UPDATE organizations SET name=?, siret=?, address=?, activity=? WHERE id=?')
       .run(data.name, data.siret, data.address, data.activity, req.user.org_id);
-    res.json(db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.user.org_id));
+    res.json(publicOrg(db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.user.org_id)));
   });
+
+  const activeUsers = (orgId) => db.prepare('SELECT COUNT(*) AS n FROM users WHERE org_id = ? AND active = 1').get(orgId).n;
+  function checkUserQuota(orgId) {
+    const { maxUsers } = billing.access(orgId);
+    if (maxUsers && activeUsers(orgId) >= maxUsers) {
+      const e = new Error(`Votre offre est limitée à ${maxUsers} utilisateurs actifs : passez à l'offre Pro pour en ajouter`);
+      e.status = 403;
+      throw e;
+    }
+  }
 
   // ---------- Utilisateurs (admin) ----------
   api.get('/users', requireRole('manager'), (req, res) => {
@@ -143,6 +178,7 @@ function createApp(db) {
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
       return res.status(409).json({ error: 'E-mail déjà utilisé' });
     }
+    checkUserQuota(req.user.org_id);
     const info = db
       .prepare('INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?,?)')
       .run(req.user.org_id, email.trim(), bcrypt.hashSync(password, 10), String(name).trim(), role);
@@ -161,6 +197,7 @@ function createApp(db) {
       if (!['admin', 'manager', 'employee'].includes(role)) return res.status(400).json({ error: 'Rôle invalide' });
       db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
     }
+    if (active && !user.active) checkUserQuota(req.user.org_id);
     if (active !== undefined) db.prepare('UPDATE users SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
     if (name) db.prepare('UPDATE users SET name = ? WHERE id = ?').run(String(name).trim(), id);
     if (password) {
