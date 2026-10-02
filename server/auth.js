@@ -15,7 +15,7 @@ function signToken(user) {
 }
 
 function authenticate(db) {
-  const findUser = db.prepare('SELECT id, org_id, email, name, role, active FROM users WHERE id = ?');
+  const findUser = db.prepare('SELECT id, org_id, email, name, role, active, notify, password_changed_at FROM users WHERE id = ?');
   return (req, res, next) => {
     const header = req.get('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -24,6 +24,10 @@ function authenticate(db) {
       const payload = jwt.verify(token, SECRET);
       const user = findUser.get(payload.uid);
       if (!user || !user.active) return res.status(401).json({ error: 'Compte désactivé' });
+      // Un changement de mot de passe déconnecte toutes les sessions ouvertes avant lui.
+      if (user.password_changed_at && payload.iat < Math.floor(Date.parse(user.password_changed_at) / 1000)) {
+        return res.status(401).json({ error: 'Session expirée' });
+      }
       req.user = user;
       next();
     } catch {

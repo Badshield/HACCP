@@ -68,6 +68,7 @@ function coerce(name, spec, raw) {
  *  - dateField : champ utilisé pour filtrer ?from=&to=
  *  - compute(data, ctx) : enrichit la ligne (conformité...) et peut renvoyer
  *    { nonConformity: 'description' } pour ouvrir une NC automatiquement
+ *  - onNonConformity({ orgId, description, author }) : appelé après l'ouverture d'une NC
  */
 function resource(db, opts) {
   const {
@@ -145,6 +146,9 @@ function resource(db, opts) {
       return id;
     });
     const id = tx();
+    if (extra.nonConformity && opts.onNonConformity) {
+      opts.onNonConformity({ orgId: req.user.org_id, description: extra.nonConformity, author: req.user.name });
+    }
     res.status(201).json(serialize(getOne(id, req.user.org_id)));
   });
 

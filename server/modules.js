@@ -1,7 +1,7 @@
 'use strict';
 
 const rules = require('./rules');
-const { resource, ValidationError } = require('./resource');
+const { resource: baseResource, ValidationError } = require('./resource');
 
 const LOGGED = { user_id: { computed: true } };
 
@@ -10,7 +10,9 @@ function fmtTemp(v) {
 }
 
 /** Monte toutes les ressources HACCP sur le routeur API. */
-function mountModules(api, db) {
+function mountModules(api, db, hooks = {}) {
+  const resource = (database, opts) => baseResource(database, { onNonConformity: hooks.onNonConformity, ...opts });
+
   // ---------- Référentiels ----------
   api.use('/equipment', resource(db, {
     table: 'equipment',

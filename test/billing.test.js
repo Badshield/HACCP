@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const Stripe = require('stripe');
 const { openDb } = require('../server/db');
 const { createApp } = require('../server/app');
+const { createMemoryMailer } = require('../server/mailer');
 const { accessFor } = require('../server/billing');
 
 const WEBHOOK_SECRET = 'whsec_test_secret';
@@ -73,6 +74,7 @@ test.before(async () => {
   db = openDb(':memory:');
   const app = createApp(db, {
     billing: { stripe: fakeStripe, prices: { essentiel: 'price_ess', pro: 'price_pro' }, webhookSecret: WEBHOOK_SECRET },
+    mailer: createMemoryMailer(),
   });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;

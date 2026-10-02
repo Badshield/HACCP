@@ -739,6 +739,53 @@ async function billingPage(main) {
   });
 }
 
+const TIMEZONES = [
+  ['Europe/Paris', 'France métropolitaine'], ['Indian/Reunion', 'La Réunion'], ['Indian/Mayotte', 'Mayotte'],
+  ['America/Martinique', 'Martinique'], ['America/Guadeloupe', 'Guadeloupe'], ['America/Cayenne', 'Guyane'],
+  ['Pacific/Noumea', 'Nouvelle-Calédonie'], ['Pacific/Tahiti', 'Polynésie française'],
+  ['Europe/Brussels', 'Belgique'], ['Europe/Zurich', 'Suisse'], ['Europe/Luxembourg', 'Luxembourg'], ['America/Toronto', 'Québec'],
+];
+
+async function notificationsSection(main) {
+  const box = main.querySelector('[data-notif]');
+  if (!box) return;
+  const n = await api('/organization/notifications');
+  const admin = can('admin');
+  const fields = [
+    { name: 'notif_enabled', label: 'Activer les rappels par e-mail', type: 'checkbox', full: true },
+    { name: 'notif_temp_times', label: 'Heures des relevés de températures', placeholder: '09:00, 17:00' },
+    { name: 'notif_grace_min', label: 'Rappel si oubli après (minutes)', type: 'number', step: '5' },
+    { name: 'notif_digest_time', label: 'Heure du récapitulatif du soir', placeholder: '20:00' },
+    { name: 'timezone', label: 'Fuseau horaire', type: 'select', required: true, options: TIMEZONES },
+    { name: 'notif_nc_alert', label: 'Alerte immédiate à chaque non-conformité', type: 'checkbox', full: true },
+  ];
+  box.innerHTML = `
+    ${n.mailConfigured ? '' : '<p class="banner warn">L\'envoi d\'e-mails n\'est pas encore configuré sur le serveur (voir docs/EMAILS.md) : les rappels ne partiront pas.</p>'}
+    <p class="muted">Un e-mail est envoyé aux responsables si un équipement n'a pas été relevé à l'heure prévue, puis un récapitulatif chaque soir (nettoyages oubliés, non-conformités ouvertes, DLC du jour) s'il y a quelque chose à signaler.</p>
+    ${admin ? formHtml(fields, { ...n, notif_temp_times: n.notif_temp_times.replace(/,/g, ', ') }) : `<p>Rappels ${n.notif_enabled ? `activés : relevés à ${esc(n.notif_temp_times.replace(/,/g, ', ') || '—')}, récapitulatif à ${esc(n.notif_digest_time)}` : 'désactivés'}.</p>`}
+    <p class="muted" style="margin-top:1rem">Destinataires (administrateurs et responsables) : ${n.recipients.map((r) => esc(r.name)).join(', ') || 'aucun'}</p>
+    <div class="row">
+      <label class="check"><input type="checkbox" data-notify ${state.user.notify ? 'checked' : ''}> Je reçois les rappels et alertes</label>
+      <span class="spacer"></span><button class="secondary" data-test-mail>Envoyer un e-mail de test</button>
+    </div>`;
+  if (admin) {
+    bindForm(box, fields, async (data) => {
+      await api('/organization/notifications', { method: 'PUT', body: { ...data, notif_grace_min: Number(data.notif_grace_min) } });
+      toast('Rappels enregistrés ✓');
+    });
+  }
+  box.querySelector('[data-notify]').onchange = async (e) => {
+    try {
+      const r = await api('/me/notify', { method: 'PUT', body: { notify: e.target.checked } });
+      state.user.notify = r.notify;
+      toast(r.notify ? 'Vous recevrez les rappels' : 'Vous ne recevrez plus les rappels');
+    } catch (err) { toast(err.message, true); }
+  };
+  box.querySelector('[data-test-mail]').onclick = async () => {
+    try { const r = await api('/organization/notifications/test', { method: 'POST' }); toast(`E-mail de test envoyé à ${r.to}`); } catch (e) { toast(e.message, true); }
+  };
+}
+
 async function settingsPage(main) {
   const orgFields = [
     { name: 'name', label: 'Nom de l\'établissement', required: true },
@@ -762,6 +809,7 @@ async function settingsPage(main) {
       <p class="muted">Ajoute les équipements, le plan de nettoyage et les durées de vie types d'un métier. Les éléments déjà présents ne sont pas dupliqués.</p>
       <div class="row"><select data-template style="width:auto"></select><button class="secondary" data-apply>Ajouter les éléments du modèle</button></div></div>` : ''}
     ${can('manager') ? '<div class="card"><div class="row"><h2>Utilisateurs</h2><span class="spacer"></span>' + (can('admin') ? '<button data-add-user>+ Ajouter</button>' : '') + '</div><div data-users></div></div>' : ''}
+    ${can('manager') ? '<div class="card"><h2>Rappels et alertes par e-mail</h2><div data-notif></div></div>' : ''}
     <div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>`;
   const orgBox = main.querySelector('[data-org]');
   if (orgBox) {
@@ -781,7 +829,14 @@ async function settingsPage(main) {
   }
   const pwBox = main.querySelector('[data-pw]');
   pwBox.innerHTML = formHtml(pwFields, {}, 'Changer');
-  bindForm(pwBox, pwFields, async (data, form) => { await api('/me/password', { method: 'PUT', body: data }); form.reset(); toast('Mot de passe modifié ✓'); });
+  bindForm(pwBox, pwFields, async (data, form) => {
+    const r = await api('/me/password', { method: 'PUT', body: data });
+    state.token = r.token;
+    localStorage.setItem('token', r.token);
+    form.reset();
+    toast('Mot de passe modifié ✓ (vos autres appareils ont été déconnectés)');
+  });
+  await notificationsSection(main);
   const usersBox = main.querySelector('[data-users]');
   const loadUsers = async () => {
     const users = await api('/users');
@@ -804,6 +859,46 @@ async function settingsPage(main) {
 }
 
 // ---------------------------------------------------------------- authentification & shell
+
+/** Écran d'authentification simple (mot de passe oublié, réinitialisation). */
+function authCard(title, intro, inner) {
+  app.innerHTML = `<div class="auth"><div class="card">
+    <h1><img src="/icon.svg" width="32" height="32" alt=""> ${esc(title)}</h1>
+    <p class="muted">${intro}</p><div data-form>${inner}</div>
+    <p class="muted"><a href="#/login">← Retour à la connexion</a></p></div></div>`;
+  return app.querySelector('[data-form]');
+}
+
+function forgotPage() {
+  const fields = [{ name: 'email', label: 'E-mail du compte', type: 'email', required: true, full: true }];
+  const box = authCard('Mot de passe oublié', 'Saisissez votre adresse : vous recevrez un lien pour choisir un nouveau mot de passe.',
+    formHtml(fields, {}, 'Recevoir le lien'));
+  bindForm(box, fields, async (data) => {
+    await api('/auth/forgot', { method: 'POST', body: data });
+    box.innerHTML = `<p>📧 Si un compte existe pour <strong>${esc(data.email)}</strong>, un e-mail vient d'être envoyé. Le lien est valable 1 heure.</p>
+      <p class="muted">Pensez à vérifier vos courriers indésirables.</p>`;
+  });
+}
+
+function resetPage() {
+  const token = new URLSearchParams(location.hash.split('?')[1] || '').get('token');
+  if (!token) { location.hash = '#/forgot'; return; }
+  const fields = [
+    { name: 'password', label: 'Nouveau mot de passe (8 caractères min.)', type: 'password', required: true, full: true },
+    { name: 'confirm', label: 'Confirmation', type: 'password', required: true, full: true },
+  ];
+  const box = authCard('Nouveau mot de passe', 'Choisissez votre nouveau mot de passe.', formHtml(fields, {}, 'Enregistrer et me connecter'));
+  bindForm(box, fields, async (data) => {
+    if (data.password !== data.confirm) throw new Error('Les deux mots de passe ne correspondent pas');
+    const res = await api('/auth/reset', { method: 'POST', body: { token, password: data.password } });
+    state.token = res.token;
+    state.user = null;
+    localStorage.setItem('token', res.token);
+    history.replaceState(null, '', '#/dashboard');
+    toast('Mot de passe modifié ✓');
+    route();
+  });
+}
 
 function logout() {
   state.token = null;
@@ -834,7 +929,7 @@ async function authPage(mode = 'login') {
     <h1><img src="/icon.svg" width="32" height="32" alt=""> Pack Hygiène HACCP</h1>
     <p class="muted">${signup ? 'Créez votre espace en 1 minute. 30 jours d\'essai gratuit, sans carte bancaire.' : 'Connectez-vous à votre espace.'}</p>
     <div data-form></div>
-    <p class="muted">${signup ? 'Déjà inscrit ? <a href="#/login">Se connecter</a>' : 'Nouveau client ? <a href="#/signup">Créer un compte</a>'}</p>
+    <p class="muted">${signup ? 'Déjà inscrit ? <a href="#/login">Se connecter</a>' : '<a href="#/forgot">Mot de passe oublié ?</a><br>Nouveau client ? <a href="#/signup">Créer un compte</a>'}</p>
   </div></div>`;
   const box = app.querySelector('[data-form]');
   box.innerHTML = formHtml(fields, {}, signup ? 'Créer mon compte' : 'Se connecter');
@@ -900,6 +995,8 @@ function renderShell() {
 
 async function route() {
   const key = (location.hash.slice(2) || '').split('?')[0];
+  if (key === 'forgot') return forgotPage();
+  if (key === 'reset') return resetPage();
   if (!state.token) return authPage(key === 'signup' ? 'signup' : 'login');
   if (key === 'login' || key === 'signup') { location.hash = '#/dashboard'; return; }
   try {

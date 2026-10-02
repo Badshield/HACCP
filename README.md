@@ -22,6 +22,8 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 📄 **Rapports** | Classeur HACCP PDF complet ou par registre, exports CSV (Excel). |
 | 🧩 **Modèles de métiers** | À l'inscription : restaurant, boulangerie, boucherie, traiteur, food-truck ou restauration collective. Équipements, plan de nettoyage et durées de vie préremplis. |
 | 💳 **Abonnements** | Essai gratuit de 30 jours, paiement Stripe, portail client, lecture seule sans abonnement (voir [docs/STRIPE.md](docs/STRIPE.md)). |
+| 🔔 **Rappels et alertes** | E-mail si les températures ne sont pas relevées à l'heure, alerte immédiate à chaque non-conformité, récapitulatif du soir (voir [docs/EMAILS.md](docs/EMAILS.md)). |
+| 🔑 **Mot de passe oublié** | Lien sécurisé à usage unique, déconnexion des autres sessions. |
 | 📊 **Tableau de bord** | Équipements à relever, nettoyages en retard, NC ouvertes, taux de conformité sur 30 jours. |
 
 ### Points forts pour un usage professionnel
@@ -55,7 +57,7 @@ docker build -t haccp .
 docker run -d -p 3000:3000 -e JWT_SECRET="$(openssl rand -hex 32)" -v haccp-data:/app/data haccp
 ```
 
-Pour activer les paiements, suivez [docs/STRIPE.md](docs/STRIPE.md).
+Pour activer les paiements, suivez [docs/STRIPE.md](docs/STRIPE.md). Pour l'envoi des e-mails (rappels, mot de passe oublié), suivez [docs/EMAILS.md](docs/EMAILS.md).
 
 Placez l'application derrière un reverse proxy HTTPS (Caddy, Nginx, Traefik) et définissez `TRUST_PROXY=1`. Voir `.env.example` pour toutes les variables. **Sauvegardez régulièrement le dossier `data/`** : il contient la base de données.
 
@@ -71,6 +73,8 @@ server/
   reports.js    exports PDF / CSV
   billing.js    abonnements Stripe (Checkout, portail, webhook, lecture seule)
   templates.js  modèles de démarrage par métier
+  mailer.js     envoi d'e-mails (SMTP) et mise en forme
+  reminders.js  rappels planifiés et alertes de non-conformité
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)

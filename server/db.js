@@ -188,6 +188,24 @@ CREATE TABLE IF NOT EXISTS non_conformities (
   closed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS password_resets (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Rappels déjà envoyés (évite les doublons, une clé par rappel et par jour).
+CREATE TABLE IF NOT EXISTS reminder_log (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  UNIQUE (org_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY,
   org_id INTEGER NOT NULL,
@@ -212,6 +230,16 @@ const ADDED_COLUMNS = {
     stripe_customer_id: 'TEXT',
     stripe_subscription_id: 'TEXT',
     current_period_end: 'TEXT',
+    timezone: "TEXT NOT NULL DEFAULT 'Europe/Paris'",
+    notif_enabled: 'INTEGER NOT NULL DEFAULT 1',
+    notif_temp_times: "TEXT NOT NULL DEFAULT '09:00,17:00'",
+    notif_grace_min: 'INTEGER NOT NULL DEFAULT 30',
+    notif_digest_time: "TEXT NOT NULL DEFAULT '20:00'",
+    notif_nc_alert: 'INTEGER NOT NULL DEFAULT 1',
+  },
+  users: {
+    notify: 'INTEGER NOT NULL DEFAULT 1',
+    password_changed_at: 'TEXT',
   },
 };
 

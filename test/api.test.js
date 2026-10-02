@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../server/db');
 const { createApp } = require('../server/app');
+const { createMemoryMailer } = require('../server/mailer');
 
 let server;
 let base;
@@ -25,7 +26,7 @@ async function signup(org, email) {
 }
 
 test.before(async () => {
-  const app = createApp(openDb(':memory:'), { billing: { stripe: null } });
+  const app = createApp(openDb(':memory:'), { billing: { stripe: null }, mailer: createMemoryMailer() });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });

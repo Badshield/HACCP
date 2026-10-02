@@ -17,6 +17,7 @@
 
 const express = require('express');
 const { requireRole } = require('./auth');
+const { appUrl } = require('./mailer');
 
 const TRIAL_DAYS = Number(process.env.TRIAL_DAYS) || 30;
 
@@ -88,12 +89,8 @@ function createBilling(db, opts = {}) {
   const getOrg = db.prepare('SELECT * FROM organizations WHERE id = ?');
   const access = (orgOrId) => accessFor(typeof orgOrId === 'object' ? orgOrId : getOrg.get(orgOrId), { enabled });
 
-  function appUrl(req) {
-    return (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  }
-
   // ---------- Garde : lecture seule sans abonnement ----------
-  const WRITE_ALLOWED = [/^\/billing\//, /^\/me\/password$/];
+  const WRITE_ALLOWED = [/^\/billing\//, /^\/me\//];
   function guard(req, res, next) {
     if (req.method === 'GET' || WRITE_ALLOWED.some((re) => re.test(req.path))) return next();
     if (access(req.user.org_id).readOnly) {
