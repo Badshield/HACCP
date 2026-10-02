@@ -10,12 +10,13 @@ if (SECRET === DEV_SECRET && process.env.NODE_ENV === 'production') {
 
 const ROLE_LEVEL = { employee: 1, manager: 2, admin: 3 };
 
-function signToken(user) {
-  return jwt.sign({ uid: user.id, org: user.org_id, role: user.role }, SECRET, { expiresIn: '12h' });
+/** dev : identifiant de la tablette pour une session ouverte par code PIN. */
+function signToken(user, { dev, expiresIn = '12h' } = {}) {
+  return jwt.sign({ uid: user.id, org: user.org_id, role: user.role, ...(dev ? { dev } : {}) }, SECRET, { expiresIn });
 }
 
 function authenticate(db) {
-  const findUser = db.prepare('SELECT id, org_id, email, name, role, active, notify, password_changed_at FROM users WHERE id = ?');
+  const findUser = db.prepare('SELECT id, org_id, email, name, role, active, notify, password_changed_at, pin_only, pin_hash IS NOT NULL AS has_pin FROM users WHERE id = ?');
   return (req, res, next) => {
     const header = req.get('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -27,6 +28,14 @@ function authenticate(db) {
       // Un changement de mot de passe déconnecte toutes les sessions ouvertes avant lui.
       if (user.password_changed_at && payload.iat < Math.floor(Date.parse(user.password_changed_at) / 1000)) {
         return res.status(401).json({ error: 'Session expirée' });
+      }
+      if (payload.dev) {
+        // Session tablette : la tablette doit toujours être active, et les droits sont ceux d'un employé.
+        const device = db.prepare('SELECT 1 FROM devices WHERE id = ? AND org_id = ? AND revoked_at IS NULL').get(payload.dev, user.org_id);
+        if (!device) return res.status(401).json({ error: 'Tablette retirée', code: 'device_invalid' });
+        user.role = 'employee';
+        user.kiosk = true;
+        user.device_id = payload.dev;
       }
       req.user = user;
       next();

@@ -160,6 +160,33 @@ label.btn { display: inline-flex; color: var(--primary); font-size: 1rem; }
 .nav-legal { font-size: .72rem; padding: 1rem .6rem 0; color: #7cc2b7; }
 .sidebar .nav-legal a { display: inline; padding: 0; color: #7cc2b7; }
 
+/* Tablette de cuisine (code PIN) */
+.kiosk { min-height: 100vh; background: linear-gradient(160deg, #0b3b37, #0f766e); color: #fff; padding: 1.25rem 1.5rem 2rem; }
+.kiosk header { display: flex; align-items: center; gap: .75rem; font-size: .95rem; }
+.kiosk header span { color: #b6e6de; }
+.kiosk h1 { text-align: center; font-size: 2rem; margin: 2rem 0 1.5rem; }
+.kiosk .muted, .kiosk .center { color: #ccfbf1; text-align: center; }
+.kiosk-users { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); max-width: 1000px; margin: 0 auto; }
+.kiosk-users button {
+  background: #fff; color: var(--text); border: 0; border-radius: 16px; min-height: 120px; font-size: 1.15rem; font-weight: 600;
+  display: grid; place-items: center; gap: .4rem; padding: 1rem;
+}
+.kiosk-users .avatar { width: 52px; height: 52px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; font-size: 1.5rem; }
+.kiosk-foot { text-align: center; margin-top: 2.5rem; }
+.kiosk-foot a { color: #b6e6de; }
+.kiosk header .secondary { background: transparent; color: #fff; border-color: rgba(255,255,255,.5); }
+.pin-dots { display: flex; justify-content: center; gap: 1rem; margin: 1.5rem 0 .5rem; min-height: 22px; }
+.pin-dots span { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; }
+.pin-dots span.on { background: #fff; }
+.pin-error { text-align: center; min-height: 1.5em; color: #fecaca; font-weight: 600; }
+.pinpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: .9rem; max-width: 340px; margin: 0 auto; }
+.pinpad button { min-height: 76px; font-size: 1.8rem; border-radius: 16px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); color: #fff; justify-content: center; }
+.pinpad button:active { background: rgba(255,255,255,.3); }
+.pinpad button.ok { background: #fff; color: var(--primary); }
+
+/* Bandeau de session tablette */
+.kiosk-bar { display: flex; align-items: center; gap: .5rem; background: var(--primary-soft); color: var(--primary); border-radius: var(--radius); padding: .5rem .5rem .5rem 1rem; margin-bottom: 1rem; }
+
 /* Étiquette imprimable */
 .label-print {
   border: 2px dashed var(--text); border-radius: 8px; padding: .75rem; width: 300px; font-size: .9rem; background: #fff;

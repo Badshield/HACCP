@@ -195,8 +195,8 @@ function createBilling(db, opts = {}) {
         customer_update: { name: 'auto', address: 'auto' },
         ...(process.env.STRIPE_AUTOMATIC_TAX === '1' ? { automatic_tax: { enabled: true } } : {}),
         locale: 'fr',
-        success_url: `${base}/#/billing?checkout=success`,
-        cancel_url: `${base}/#/billing`,
+        success_url: `${base}/app#/billing?checkout=success`,
+        cancel_url: `${base}/app#/billing`,
       });
       res.json({ url: session.url });
     } catch (e) {
@@ -212,7 +212,7 @@ function createBilling(db, opts = {}) {
       const session = await stripe.billingPortal.sessions.create({
         customer: org.stripe_customer_id,
         locale: 'fr',
-        return_url: `${appUrl(req)}/#/billing`,
+        return_url: `${appUrl(req)}/app#/billing`,
       });
       res.json({ url: session.url });
     } catch (e) {

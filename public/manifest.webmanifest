@@ -1,7 +1,8 @@
 {
   "name": "Pack Hygiène HACCP",
   "short_name": "HACCP",
-  "start_url": "/",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f766e",

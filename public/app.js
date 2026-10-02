@@ -1,6 +1,11 @@
 // Pack Hygiène HACCP – application monopage (sans dépendance, sans build).
 
-const state = { token: localStorage.getItem('token'), user: null, org: null, access: null, ref: null, openNc: 0 };
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* stockage indisponible */ } },
+  del: (k) => { try { localStorage.removeItem(k); } catch { /* stockage indisponible */ } },
+};
+const state = { deviceToken: store.get('deviceToken'), token: localStorage.getItem('token'), user: null, org: null, access: null, ref: null, openNc: 0 };
 const app = document.getElementById('app');
 
 // ---------------------------------------------------------------- utilitaires
@@ -25,12 +30,27 @@ function toast(msg, error = false) {
 }
 
 async function api(path, { method = 'GET', body, raw } = {}) {
+  const kioskCall = path.startsWith('/kiosk');
   const res = await fetch(`/api${path}`, {
     method,
-    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(state.token && !kioskCall ? { Authorization: `Bearer ${state.token}` } : {}),
+      ...(kioskCall && state.deviceToken ? { 'X-Device-Token': state.deviceToken } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 && state.token) { logout(); throw new Error('Session expirée'); }
+  if (res.status === 401) {
+    const data = await res.clone().json().catch(() => ({}));
+    if (data.code === 'device_invalid') {
+      // Tablette retirée par un responsable : retour à la connexion classique.
+      state.deviceToken = null;
+      store.del('deviceToken');
+      if (state.token && state.user?.kiosk) { logout(); throw new Error('Cette tablette a été retirée'); }
+      if (kioskCall) { route(); throw new Error('Cette tablette a été retirée'); }
+    }
+    if (state.token && !kioskCall) { logout(); throw new Error('Session expirée'); }
+  }
   if (raw) { if (!res.ok) throw new Error('Téléchargement impossible'); return res; }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
@@ -912,6 +932,7 @@ async function settingsPage(main) {
     { name: 'password', label: 'Nouveau mot de passe (8 car. min.)', type: 'password', required: true },
   ];
   const userFields = [
+    // Le code PIN est facultatif : il donne aussi accès à la tablette de cuisine.
     { name: 'name', label: 'Nom', required: true },
     { name: 'email', label: 'E-mail', type: 'email', required: true },
     { name: 'password', label: 'Mot de passe provisoire', type: 'password', required: true },
@@ -922,9 +943,11 @@ async function settingsPage(main) {
     ${can('admin') ? `<div class="card"><h2>Modèle de métier</h2>
       <p class="muted">Ajoute les équipements, le plan de nettoyage et les durées de vie types d'un métier. Les éléments déjà présents ne sont pas dupliqués.</p>
       <div class="row"><select data-template style="width:auto"></select><button class="secondary" data-apply>Ajouter les éléments du modèle</button></div></div>` : ''}
-    ${can('manager') ? '<div class="card"><div class="row"><h2>Utilisateurs</h2><span class="spacer"></span>' + (can('admin') ? '<button data-add-user>+ Ajouter</button>' : '') + '</div><div data-users></div></div>' : ''}
+    ${can('manager') ? '<div class="card"><div class="row"><h2>Utilisateurs</h2><span class="spacer"></span>' + (can('admin') ? '<button class="secondary" data-add-pin-user>+ Employé sans e-mail (code PIN)</button><button data-add-user>+ Ajouter</button>' : '') + '</div><div data-users></div></div>' : ''}
+    ${can('manager') ? '<div class="card"><h2>🔢 Tablettes de cuisine</h2><div data-devices></div></div>' : ''}
+    <div class="card"><h2>Mon code PIN</h2><div data-mypin></div></div>
     ${can('manager') ? '<div class="card"><h2>Rappels et alertes par e-mail</h2><div data-notif></div></div>' : ''}
-    <div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>
+    ${state.user.kiosk || state.user.pin_only ? '' : '<div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>'}
     ${can('admin') ? `<div class="card"><h2>Mes données</h2>
       <p class="muted">Vous restez propriétaire de vos données. ${state.org?.terms_accepted_at ? `CGV acceptées le ${esc(fmtDT(state.org.terms_accepted_at))} (version du ${esc(fmtD(state.org.terms_version))}).` : ''}</p>
       <div class="row"><button class="secondary" data-export>⬇ Exporter toutes mes données (JSON)</button>
@@ -946,14 +969,16 @@ async function settingsPage(main) {
     };
   }
   const pwBox = main.querySelector('[data-pw]');
-  pwBox.innerHTML = formHtml(pwFields, {}, 'Changer');
-  bindForm(pwBox, pwFields, async (data, form) => {
-    const r = await api('/me/password', { method: 'PUT', body: data });
-    state.token = r.token;
-    localStorage.setItem('token', r.token);
-    form.reset();
-    toast('Mot de passe modifié ✓ (vos autres appareils ont été déconnectés)');
-  });
+  if (pwBox) {
+    pwBox.innerHTML = formHtml(pwFields, {}, 'Changer');
+    bindForm(pwBox, pwFields, async (data, form) => {
+      const r = await api('/me/password', { method: 'PUT', body: data });
+      state.token = r.token;
+      store.set('token', r.token);
+      form.reset();
+      toast('Mot de passe modifié ✓ (vos autres appareils ont été déconnectés)');
+    });
+  }
   await notificationsSection(main);
   main.querySelector('[data-export]')?.addEventListener('click', () => download('/organization/export', `export-${isoDay()}.json`));
   main.querySelector('[data-delete-account]')?.addEventListener('click', () => {
@@ -977,21 +1002,175 @@ async function settingsPage(main) {
     const users = await api('/users');
     usersBox.innerHTML = tableHtml([
       { label: 'Nom', get: (u) => u.name },
-      { label: 'E-mail', get: (u) => u.email },
+      { label: 'E-mail', html: (u) => (u.pin_only ? '<span class="muted">— (code PIN seul)</span>' : esc(u.email)) },
+      { label: 'Tablette', html: (u) => (u.has_pin ? '<span class="pill ok">🔢 PIN</span>' : '<span class="muted">—</span>') },
       { label: 'Rôle', get: (u) => ROLES[u.role] },
       { label: 'Statut', html: (u) => (u.active ? '<span class="pill ok">Actif</span>' : '<span class="pill bad">Désactivé</span>') },
-      { label: '', html: (u) => (can('admin') && u.id !== state.user.id ? `<button class="secondary small" data-toggle="${u.id}" data-active="${u.active}">${u.active ? 'Désactiver' : 'Réactiver'}</button>` : '') },
+      { label: '', html: (u) => (can('admin') ? `<div class="row">
+        <button class="secondary small" data-pin="${u.id}">Code PIN</button>
+        ${u.id !== state.user.id ? `<button class="secondary small" data-toggle="${u.id}" data-active="${u.active}">${u.active ? 'Désactiver' : 'Réactiver'}</button>` : ''}</div>` : '') },
     ], users);
+    usersBox.querySelectorAll('[data-pin]').forEach((b) => {
+      b.onclick = () => {
+        const u = users.find((x) => x.id === Number(b.dataset.pin));
+        const f = [{ name: 'pin', label: 'Nouveau code PIN (4 à 6 chiffres)', type: 'password', required: true, full: true }];
+        const dlg = modal(`Code PIN de ${u.name}`, `<p class="muted">Ce code permet de se connecter sur la tablette de cuisine. Communiquez-le à la personne de vive voix.
+          Le définir débloque aussi le compte après des erreurs.</p>${formHtml(f, {}, 'Enregistrer')}
+          ${u.has_pin && !u.pin_only ? '<p><button class="danger small" data-remove-pin>Retirer l\'accès tablette</button></p>' : ''}`);
+        dlg.querySelector('input[name=pin]').setAttribute('inputmode', 'numeric');
+        bindForm(dlg, f, async (data) => {
+          await api(`/users/${u.id}`, { method: 'PUT', body: { pin: data.pin } });
+          dlg.close(); toast('Code PIN enregistré ✓'); loadUsers();
+        });
+        dlg.querySelector('[data-remove-pin]')?.addEventListener('click', async () => {
+          await api(`/users/${u.id}`, { method: 'PUT', body: { pin: null } }); dlg.close(); loadUsers();
+        });
+      };
+    });
     usersBox.querySelectorAll('[data-toggle]').forEach((b) => {
       b.onclick = async () => { await api(`/users/${b.dataset.toggle}`, { method: 'PUT', body: { active: b.dataset.active !== '1' } }); loadUsers(); };
     });
   };
   if (usersBox) await loadUsers();
+  main.querySelector('[data-add-pin-user]')?.addEventListener('click', () => {
+    const f = [
+      { name: 'name', label: 'Prénom et nom', required: true, full: true },
+      { name: 'pin', label: 'Code PIN (4 à 6 chiffres)', type: 'password', required: true, full: true },
+    ];
+    const dlg = modal('Nouvel employé (code PIN)', `<p class="muted">Pour le personnel sans adresse e-mail : il se connecte uniquement sur la tablette de cuisine,
+      avec les droits de saisie d'un employé.</p>${formHtml(f, {}, 'Créer')}`);
+    dlg.querySelector('input[name=pin]').setAttribute('inputmode', 'numeric');
+    bindForm(dlg, f, async (data) => {
+      await api('/users', { method: 'POST', body: { ...data, pin_only: true } });
+      dlg.close(); toast('Employé créé ✓'); loadUsers();
+    });
+  });
+  await devicesSection(main);
+  myPinSection(main);
   main.querySelector('[data-add-user]')?.addEventListener('click', () => {
     const dlg = modal('Nouvel utilisateur', formHtml(userFields, { role: 'employee' }));
     bindForm(dlg, userFields, async (data) => { await api('/users', { method: 'POST', body: data }); dlg.close(); toast('Utilisateur créé ✓'); loadUsers(); });
   });
 }
+
+// ---------------------------------------------------------------- tablette de cuisine (code PIN)
+
+const KIOSK_IDLE_MS = 3 * 60000;
+
+async function devicesSection(main) {
+  const box = main.querySelector('[data-devices]');
+  if (!box) return;
+  const devices = state.user.kiosk ? [] : await api('/devices');
+  box.innerHTML = `<p class="muted">Installez une tablette dans la cuisine : chacun touche son nom et tape son code PIN. Les saisies sont signées
+    par la bonne personne, sans partager de mot de passe. Les sessions tablette ont les droits d'un employé et se ferment après 3 minutes sans activité.</p>
+    ${state.deviceToken ? '<p class="banner warn">Cet appareil est configuré comme tablette de cuisine. <button class="secondary small" data-local-off>Désactiver sur cet appareil</button></p>'
+      : '<p><button data-make-kiosk>Utiliser cet appareil comme tablette de cuisine</button></p>'}
+    ${tableHtml([
+      { label: 'Tablette', get: (d) => d.name },
+      { label: 'Ajoutée le', get: (d) => `${fmtDT(d.created_at)}${d.created_by_name ? ` par ${d.created_by_name}` : ''}` },
+      { label: 'Dernière utilisation', get: (d) => fmtDT(d.last_seen_at) || 'jamais' },
+      { label: '', html: (d) => `<button class="danger small" data-revoke="${d.id}">Retirer</button>` },
+    ], devices)}`;
+  box.querySelector('[data-make-kiosk]')?.addEventListener('click', async () => {
+    const name = prompt('Nom de cette tablette (ex. « Tablette cuisine », « Tablette laboratoire ») :', 'Tablette cuisine');
+    if (name === null) return;
+    try {
+      const d = await api('/devices', { method: 'POST', body: { name } });
+      state.deviceToken = d.token;
+      store.set('deviceToken', d.token);
+      toast('Tablette configurée ✓ Les employés peuvent maintenant se connecter avec leur code PIN.');
+      logout();
+    } catch (e) { toast(e.message, true); }
+  });
+  box.querySelector('[data-local-off]')?.addEventListener('click', () => {
+    if (!confirm('Désactiver le mode tablette sur cet appareil ? (Pensez aussi à la retirer de la liste.)')) return;
+    state.deviceToken = null;
+    store.del('deviceToken');
+    devicesSection(main);
+  });
+  box.querySelectorAll('[data-revoke]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Retirer cette tablette ? Les personnes connectées dessus seront déconnectées.')) return;
+      try { await api(`/devices/${b.dataset.revoke}`, { method: 'DELETE' }); devicesSection(main); } catch (e) { toast(e.message, true); }
+    };
+  });
+}
+
+function myPinSection(main) {
+  const box = main.querySelector('[data-mypin]');
+  if (!box) return;
+  const f = state.user.kiosk
+    ? [{ name: 'current_pin', label: 'Code PIN actuel', type: 'password', required: true }, { name: 'pin', label: 'Nouveau code PIN', type: 'password', required: true }]
+    : [{ name: 'password', label: 'Votre mot de passe', type: 'password', required: true }, { name: 'pin', label: 'Code PIN (4 à 6 chiffres)', type: 'password', required: true }];
+  box.innerHTML = `<p class="muted">${state.user.has_pin ? 'Vous avez un code PIN pour la tablette de cuisine.' : 'Définissez un code PIN pour vous connecter rapidement sur la tablette de cuisine.'}</p>${formHtml(f, {}, state.user.has_pin ? 'Changer mon code' : 'Définir mon code')}`;
+  box.querySelectorAll('input[name=pin], input[name=current_pin]').forEach((i) => i.setAttribute('inputmode', 'numeric'));
+  bindForm(box, f, async (data, form) => {
+    await api('/me/pin', { method: 'PUT', body: data });
+    state.user.has_pin = true;
+    form.reset();
+    toast('Code PIN enregistré ✓');
+  });
+}
+
+/** Écran de la tablette : choix de la personne puis clavier PIN. */
+async function kioskPage() {
+  let info;
+  try { info = await api('/kiosk'); } catch (e) { return authPage('login'); }
+  const showUsers = () => {
+    app.innerHTML = `<div class="kiosk"><header><img src="/icon.svg" width="34" height="34" alt=""><div><strong>${esc(info.organization)}</strong><br><span>${esc(info.device)}</span></div>
+      <span class="spacer"></span><span class="clock" data-clock></span></header>
+      <h1>Qui êtes-vous ?</h1>
+      <div class="kiosk-users">${info.users.map((u) => `<button data-user="${u.id}"><span class="avatar">${esc(u.name.trim().charAt(0).toUpperCase())}</span>${esc(u.name)}</button>`).join('')
+        || '<p class="muted">Aucun employé n\'a encore de code PIN. Un responsable doit en définir dans Paramètres → Utilisateurs.</p>'}</div>
+      <p class="kiosk-foot"><a href="#/login" data-classic>Connexion responsable (e-mail)</a></p></div>`;
+    tick();
+    app.querySelectorAll('[data-user]').forEach((b) => { b.onclick = () => showPad(info.users.find((u) => u.id === Number(b.dataset.user))); });
+    app.querySelector('[data-classic]').onclick = (e) => { e.preventDefault(); authPage('login'); };
+  };
+  const tick = () => {
+    const c = app.querySelector('[data-clock]');
+    if (!c) return;
+    const txt = new Date().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    c.textContent = txt.charAt(0).toUpperCase() + txt.slice(1);
+  };
+  const showPad = (user) => {
+    let pin = '';
+    app.innerHTML = `<div class="kiosk"><header><button class="secondary" data-back>← Retour</button><span class="spacer"></span></header>
+      <h1>Bonjour ${esc(user.name)}</h1><p class="muted center">Tapez votre code PIN</p>
+      <div class="pin-dots" data-dots></div><p class="pin-error" data-err role="alert"></p>
+      <div class="pinpad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-d="${n}">${n}</button>`).join('')}
+        <button data-del aria-label="Effacer">⌫</button><button data-d="0">0</button><button data-ok class="ok" aria-label="Valider">✓</button></div></div>`;
+    const dots = app.querySelector('[data-dots]');
+    const err = app.querySelector('[data-err]');
+    const draw = () => { dots.innerHTML = Array.from({ length: Math.max(4, pin.length) }, (_, i) => `<span class="${i < pin.length ? 'on' : ''}"></span>`).join(''); };
+    const submit = async () => {
+      if (pin.length < 4) return;
+      try {
+        const r = await api('/kiosk/login', { method: 'POST', body: { user_id: user.id, pin } });
+        state.token = r.token;
+        state.user = null;
+        store.set('token', r.token);
+        if (location.hash === '#/temperatures') route(); else location.hash = '#/temperatures';
+      } catch (e) { err.textContent = e.message; pin = ''; draw(); }
+    };
+    app.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => { if (pin.length < 6) { pin += b.dataset.d; err.textContent = ''; draw(); } }; });
+    app.querySelector('[data-del]').onclick = () => { pin = pin.slice(0, -1); draw(); };
+    app.querySelector('[data-ok]').onclick = submit;
+    app.querySelector('[data-back]').onclick = showUsers;
+    draw();
+  };
+  showUsers();
+  clearInterval(kioskPage.clock);
+  kioskPage.clock = setInterval(tick, 30000);
+}
+
+/** Session tablette : déconnexion automatique après 3 minutes sans activité. */
+function armKioskIdle() {
+  clearTimeout(armKioskIdle.timer);
+  if (!state.user?.kiosk) return;
+  armKioskIdle.timer = setTimeout(() => { if (state.user?.kiosk) logout(); }, KIOSK_IDLE_MS);
+}
+['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, armKioskIdle, { passive: true }));
 
 // ---------------------------------------------------------------- authentification & shell
 
@@ -1038,7 +1217,8 @@ function resetPage() {
 function logout() {
   state.token = null;
   state.user = null;
-  localStorage.removeItem('token');
+  clearTimeout(armKioskIdle.timer);
+  store.del('token');
   route();
 }
 
@@ -1108,7 +1288,12 @@ function renderBanner() {
   if (a.state === 'expired') html = `<div class="banner bad">🔒 Votre essai ou votre abonnement est terminé : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div>`;
   else if (a.state === 'past_due') html = `<div class="banner warn">⚠ Le dernier paiement a échoué.${can('admin') ? ' <a href="#/billing">Mettre à jour le moyen de paiement →</a>' : ''}</div>`;
   else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">⏳ Plus que ${a.trialDaysLeft} jour(s) d'essai gratuit.${link}</div>`;
+  if (state.user?.kiosk) {
+    html = `<div class="kiosk-bar">👤 <strong>${esc(state.user.name)}</strong><span class="spacer"></span>
+      <button class="secondary small" data-switch>🔄 Changer d'utilisateur</button></div>${html}`;
+  }
   box.innerHTML = html;
+  box.querySelector('[data-switch]')?.addEventListener('click', () => logout());
 }
 
 function renderShell() {
@@ -1124,7 +1309,7 @@ function renderShell() {
       <div class="brand"><img src="/icon.svg" alt=""> Pack Hygiène</div>
       <div class="org-name">${esc(state.org?.name)}<br>${esc(state.user?.name)} · ${esc(ROLES[state.user?.role])}</div>
       ${nav}
-      <div class="nav-group">Compte</div><a href="#" data-logout><span>🚪</span> Déconnexion</a>
+      <div class="nav-group">Compte</div><a href="#" data-logout>${state.user?.kiosk ? '<span>🔄</span> Changer d\'utilisateur' : '<span>🚪</span> Déconnexion'}</a>
       <div class="nav-legal"><a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a> · <a href="/legal/mentions" target="_blank">Mentions légales</a></div>
     </nav><main class="main"><div data-banner class="no-print"></div><div data-main></div></main></div>`;
   renderBanner();
@@ -1159,7 +1344,11 @@ async function route() {
   const key = (location.hash.slice(2) || '').split('?')[0];
   if (key === 'forgot') return forgotPage();
   if (key === 'reset') return resetPage();
-  if (!state.token) return authPage(key === 'signup' ? 'signup' : 'login');
+  if (!state.token) {
+    // Tablette de cuisine : écran de choix de la personne, sauf demande explicite d'une autre page.
+    if (state.deviceToken && !['login', 'signup'].includes(key)) return kioskPage();
+    return authPage(key === 'signup' ? 'signup' : 'login');
+  }
   if (key === 'login' || key === 'signup') { location.hash = '#/dashboard'; return; }
   try {
     if (!state.user) { await loadSession(); refreshBadge(); }
@@ -1169,6 +1358,7 @@ async function route() {
   main.innerHTML = '<p class="muted">Chargement…</p>';
   try { await page.render(main); } catch (e) { main.innerHTML = `<p class="pill bad">${esc(e.message)}</p>`; }
   askTermsIfNeeded();
+  armKioskIdle();
 }
 
 window.addEventListener('hashchange', route);

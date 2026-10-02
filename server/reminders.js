@@ -89,7 +89,7 @@ function createReminders({ db, mailer, access, baseUrl }) {
     }
   }
 
-  const link = (label, path) => (baseUrl ? [{ button: label, url: `${baseUrl}/#/${path}` }] : []);
+  const link = (label, path) => (baseUrl ? [{ button: label, url: `${baseUrl}/app#/${path}` }] : []);
 
   function missingTemperatures(orgId, sinceIso) {
     return db.prepare(`SELECT e.name FROM equipment e WHERE e.org_id = ? AND e.active = 1 AND NOT EXISTS (

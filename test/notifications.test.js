@@ -54,7 +54,7 @@ test('mot de passe oublié : lien unique, valable 1 h, sessions déconnectées',
   assert.equal(r.status, 200);
   const mail = mailsTo('oubli@test.fr').at(-1);
   assert.match(mail.subject, /Réinitialisation/);
-  const link = /https:\/\/app\.test\/#\/reset\?token=([\w-]+)/.exec(mail.text);
+  const link = /https:\/\/app\.test\/app#\/reset\?token=([\w-]+)/.exec(mail.text);
   assert.ok(link, 'lien de réinitialisation présent');
   const resetToken = link[1];
   assert.ok(!db.prepare('SELECT 1 FROM password_resets WHERE token_hash = ?').get(resetToken), 'jeton stocké haché');
@@ -159,7 +159,7 @@ test('rappel de relevé de températures oublié (une seule fois par créneau)',
   assert.match(mail.subject, /Relevé de températures de 09:00 non effectué/);
   assert.ok(!mail.text.includes(`- ${eq[0].name}\n`), 'équipement déjà relevé non listé');
   assert.ok(mail.text.includes(`- ${eq[1].name}`));
-  assert.match(mail.text, /https:\/\/app\.test\/#\/temperatures/);
+  assert.match(mail.text, /https:\/\/app\.test\/app#\/temperatures/);
   // Pas de doublon au passage suivant.
   assert.deepEqual(keys(await reminders.run(at('2030-03-12T08:40:00Z'))), []);
   // Au-delà de 2 h de retard, plus de rappel (serveur redémarré tard).

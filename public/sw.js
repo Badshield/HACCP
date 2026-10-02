@@ -1,8 +1,8 @@
 // Service worker minimal : permet l'installation en application (PWA) et
 // garde l'interface disponible si le réseau est coupé. Les données (/api)
 // ne sont jamais mises en cache.
-const CACHE = 'haccp-v1';
-const ASSETS = ['/', '/index.html', '/app.js', '/styles.css', '/icon.svg', '/manifest.webmanifest'];
+const CACHE = 'haccp-v2';
+const ASSETS = ['/app', '/app.js', '/styles.css', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -23,6 +23,6 @@ self.addEventListener('fetch', (e) => {
         caches.open(CACHE).then((c) => c.put(e.request, copy));
         return res;
       })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('/index.html')))
+      .catch(() => caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('/app') : undefined)))
   );
 });

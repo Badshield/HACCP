@@ -9,6 +9,7 @@ const { openDb } = require('./db');
 const rules = require('./rules');
 const { TEMPLATES } = require('./templates');
 const { trialEnd } = require('./billing');
+const { TERMS_VERSION } = require('./legal');
 
 function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
@@ -16,8 +17,10 @@ function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
     return;
   }
   db.transaction(() => {
-    const org = db.prepare('INSERT INTO organizations (name, address, activity, siret, trial_ends_at) VALUES (?,?,?,?,?)')
-      .run('Restaurant Le Bon Goût', '12 rue des Halles, 75001 Paris', 'Restauration traditionnelle', '12345678900012', trialEnd())
+    const org = db.prepare(`INSERT INTO organizations (name, address, activity, siret, trial_ends_at, terms_accepted_at, terms_version)
+      VALUES (?,?,?,?,?,?,?)`)
+      .run('Restaurant Le Bon Goût', '12 rue des Halles, 75001 Paris', 'Restauration traditionnelle', '12345678900012', trialEnd(),
+        new Date().toISOString(), TERMS_VERSION)
       .lastInsertRowid;
     const hash = bcrypt.hashSync(password, 10);
     const addUser = db.prepare('INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?,?)');

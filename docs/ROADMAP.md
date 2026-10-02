@@ -16,7 +16,8 @@ Indispensable avant d'encaisser des abonnements :
 - [x] **Modèles de démarrage par métier** (restaurant, boulangerie, boucherie, traiteur, food-truck, collectivité) : équipements, plan de nettoyage et durées de vie préremplis à l'inscription
 - [x] **Photos** jointes aux réceptions, non-conformités, nettoyages, process et nuisibles, avec annexe dans le classeur PDF
 - [ ] Stockage des photos sur un service objet (S3 / Scaleway Object Storage) au-delà d'un serveur
-- [ ] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
+- [x] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
+- [x] **Page d'accueil commerciale** avec tarifs, FAQ et formulaire de demande de démo
 - [ ] **Sauvegardes automatiques** chiffrées et hors site (Litestream vers S3 pour SQLite)
 - [x] Pages légales : CGV/CGU, politique de confidentialité, mentions légales, **contrat de sous-traitance RGPD** (modèles à faire relire)
 - [x] Export complet des données et suppression du compte (RGPD)

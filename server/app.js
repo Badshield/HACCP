@@ -14,6 +14,8 @@ const { TEMPLATES, listTemplates, applyTemplate } = require('./templates');
 const { createMailer, compose, appUrl } = require('./mailer');
 const { createPhotos } = require('./photos');
 const { mountLegal, TERMS_VERSION } = require('./legal');
+const { createKiosk, hashPin } = require('./kiosk');
+const { mountLanding } = require('./landing');
 const { createReminders, normalizeTimes, defaultBaseUrl } = require('./reminders');
 
 const RESET_TTL_MS = 60 * 60000;
@@ -30,7 +32,19 @@ function publicOrg(org) {
 }
 
 function publicUser(u) {
-  return { id: u.id, org_id: u.org_id, email: u.email, name: u.name, role: u.role, active: u.active, notify: u.notify };
+  return {
+    id: u.id,
+    org_id: u.org_id,
+    // Les employés « PIN seul » n'ont pas d'e-mail : une adresse technique non routable est stockée.
+    email: u.pin_only ? null : u.email,
+    name: u.name,
+    role: u.role,
+    active: u.active,
+    notify: u.notify,
+    has_pin: u.has_pin !== undefined ? !!u.has_pin : !!u.pin_hash,
+    pin_only: !!u.pin_only,
+    ...(u.kiosk ? { kiosk: true } : {}),
+  };
 }
 
 function checkPassword(pw) {
@@ -68,6 +82,7 @@ function createApp(db, opts = {}) {
   });
   const photos = createPhotos(db, opts.photos);
   app.locals.mailer = mailer;
+  mountLanding(app, db, { mailer, limiter: loginLimiter({ max: 5 }) });
   app.locals.reminders = reminders;
   // Le webhook Stripe doit recevoir le corps brut pour vérifier la signature.
   app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billing.webhook);
@@ -138,13 +153,13 @@ function createApp(db, opts = {}) {
   api.post('/auth/forgot', loginLimiter({ max: 5 }), (req, res) => {
     const email = String(req.body?.email || '').trim();
     if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Adresse e-mail invalide' });
-    const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
+    const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1 AND pin_only = 0').get(email);
     if (user) {
       const token = crypto.randomBytes(32).toString('base64url');
       db.prepare('DELETE FROM password_resets WHERE user_id = ? AND (used_at IS NOT NULL OR expires_at < ?)').run(user.id, nowIso());
       db.prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?,?,?)')
         .run(user.id, sha256(token), new Date(Date.now() + RESET_TTL_MS).toISOString());
-      const url = `${opts.baseUrl || appUrl(req)}/#/reset?token=${token}`;
+      const url = `${opts.baseUrl || appUrl(req)}/app#/reset?token=${token}`;
       // Envoi en arrière-plan : le temps de réponse ne révèle pas si le compte existe.
       mailer.send({
         to: user.email,
@@ -178,6 +193,9 @@ function createApp(db, opts = {}) {
     })();
     res.json({ token: signToken(user), user: publicUser(user) });
   });
+
+  const kiosk = createKiosk(db, { limiter: loginLimiter({ max: 60 }) });
+  api.use('/kiosk', kiosk.kiosk);
 
   // ---------- Authentifié ----------
   api.use(authenticate(db));
@@ -252,6 +270,7 @@ function createApp(db, opts = {}) {
   });
 
   api.put('/me/password', (req, res) => {
+    if (req.user.kiosk) return res.status(403).json({ error: 'Changez votre mot de passe depuis une connexion classique' });
     const { current, password } = req.body || {};
     const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
     if (!bcrypt.compareSync(String(current || ''), row.password_hash)) {
@@ -262,6 +281,26 @@ function createApp(db, opts = {}) {
       .run(bcrypt.hashSync(password, 10), nowIso(), req.user.id);
     // Les autres sessions sont déconnectées ; celle-ci reçoit un nouveau jeton.
     res.json({ token: signToken(req.user) });
+  });
+
+  // Code PIN personnel pour la tablette de cuisine.
+  api.put('/me/pin', (req, res) => {
+    const { pin, password, current_pin: currentPin } = req.body || {};
+    const row = db.prepare('SELECT password_hash, pin_hash FROM users WHERE id = ?').get(req.user.id);
+    if (req.user.kiosk) {
+      if (!row.pin_hash || !bcrypt.compareSync(String(currentPin ?? ''), row.pin_hash)) {
+        return res.status(400).json({ error: 'Code PIN actuel incorrect' });
+      }
+    } else if (!bcrypt.compareSync(String(password || ''), row.password_hash)) {
+      return res.status(400).json({ error: 'Mot de passe incorrect' });
+    }
+    if (pin === null) {
+      if (req.user.pin_only) return res.status(400).json({ error: 'Votre compte fonctionne uniquement par code PIN' });
+      db.prepare('UPDATE users SET pin_hash = NULL WHERE id = ?').run(req.user.id);
+    } else {
+      db.prepare('UPDATE users SET pin_hash = ?, pin_failed = 0, pin_locked_until = NULL WHERE id = ?').run(hashPin(pin), req.user.id);
+    }
+    res.json({ has_pin: pin !== null });
   });
 
   api.put('/me/notify', requireRole('manager'), (req, res) => {
@@ -343,8 +382,21 @@ function createApp(db, opts = {}) {
     res.json(rows.map(publicUser));
   });
 
+  api.use('/devices', kiosk.devices);
+
   api.post('/users', requireRole('admin'), (req, res) => {
-    const { name, email, password, role } = req.body || {};
+    const { name, email, password, role, pin, pin_only: pinOnly } = req.body || {};
+    // Employé sans e-mail : il se connecte uniquement par code PIN sur la tablette de cuisine.
+    if (pinOnly) {
+      if (!name || !String(name).trim()) return res.status(400).json({ error: 'Nom requis' });
+      const pinHash = hashPin(pin);
+      checkUserQuota(req.user.org_id);
+      const info = db.prepare(`INSERT INTO users (org_id, email, password_hash, name, role, pin_hash, pin_only, notify)
+        VALUES (?,?,?,?, 'employee', ?, 1, 0)`)
+        .run(req.user.org_id, `pin-${crypto.randomBytes(12).toString('hex')}@kiosk.invalid`,
+          bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10), String(name).trim(), pinHash);
+      return res.status(201).json(publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)));
+    }
     if (!name || !EMAIL_RE.test(email || '')) return res.status(400).json({ error: 'Nom et e-mail valides requis' });
     if (!['admin', 'manager', 'employee'].includes(role)) return res.status(400).json({ error: 'Rôle invalide' });
     checkPassword(password);
@@ -353,8 +405,8 @@ function createApp(db, opts = {}) {
     }
     checkUserQuota(req.user.org_id);
     const info = db
-      .prepare('INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?,?)')
-      .run(req.user.org_id, email.trim(), bcrypt.hashSync(password, 10), String(name).trim(), role);
+      .prepare('INSERT INTO users (org_id, email, password_hash, name, role, pin_hash) VALUES (?,?,?,?,?,?)')
+      .run(req.user.org_id, email.trim(), bcrypt.hashSync(password, 10), String(name).trim(), role, pin ? hashPin(pin) : null);
     res.status(201).json(publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid)));
   });
 
@@ -362,7 +414,16 @@ function createApp(db, opts = {}) {
     const id = Number(req.params.id);
     const user = db.prepare('SELECT * FROM users WHERE id = ? AND org_id = ?').get(id, req.user.org_id);
     if (!user) return res.status(404).json({ error: 'Introuvable' });
-    const { role, active, password, name } = req.body || {};
+    const { role, active, password, name, pin } = req.body || {};
+    if (user.pin_only && role && role !== 'employee') {
+      return res.status(400).json({ error: 'Un employé sans e-mail ne peut pas être responsable ou administrateur' });
+    }
+    if (pin !== undefined) {
+      // pin : nouveau code (débloque aussi le compte) ; null : retire l'accès tablette.
+      if (pin === null && user.pin_only) return res.status(400).json({ error: 'Un employé sans e-mail doit garder un code PIN' });
+      db.prepare('UPDATE users SET pin_hash = ?, pin_failed = 0, pin_locked_until = NULL WHERE id = ?')
+        .run(pin === null ? null : hashPin(pin), id);
+    }
     if (id === req.user.id && (active === false || (role && role !== 'admin'))) {
       return res.status(400).json({ error: 'Vous ne pouvez pas retirer vos propres droits administrateur' });
     }
@@ -470,8 +531,10 @@ function createApp(db, opts = {}) {
   app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue' }));
 
   mountLegal(app);
-  app.use(express.static(path.join(__dirname, '..', 'public')));
-  app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+  app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
+  // L'application monopage est servie sous /app (la page d'accueil commerciale est sur /).
+  const spa = (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
+  app.get(['/app', /^\/app\/.*/], spa);
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {

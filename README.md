@@ -26,6 +26,8 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | ⚖️ **Pages légales et RGPD** | Mentions légales, CGV, confidentialité, contrat de sous-traitance ; acceptation tracée, export complet et suppression du compte (voir [docs/LEGAL.md](docs/LEGAL.md)). |
 | 🔔 **Rappels et alertes** | E-mail si les températures ne sont pas relevées à l'heure, alerte immédiate à chaque non-conformité, récapitulatif du soir (voir [docs/EMAILS.md](docs/EMAILS.md)). |
 | 🔑 **Mot de passe oublié** | Lien sécurisé à usage unique, déconnexion des autres sessions. |
+| 🔢 **Tablette de cuisine** | Chaque employé touche son nom et tape son code PIN : saisies signées par la bonne personne, sans e-mail ni mot de passe partagé. Droits limités, déconnexion après 3 min d'inactivité, blocage après 5 erreurs. |
+| 🌐 **Page d'accueil commerciale** | Présentation, tarifs (synchronisés avec la facturation), FAQ, formulaire de demande de démo envoyé par e-mail. |
 | 📊 **Tableau de bord** | Équipements à relever, nettoyages en retard, NC ouvertes, taux de conformité sur 30 jours. |
 
 ### Points forts pour un usage professionnel
@@ -43,7 +45,7 @@ Prérequis : Node.js 20 ou plus récent.
 ```bash
 npm install
 npm run seed     # crée un établissement de démo : demo@haccp.local / demo1234
-npm start        # http://localhost:3000
+npm start        # page d'accueil : http://localhost:3000, application : http://localhost:3000/app
 ```
 
 Tests automatisés :
@@ -51,6 +53,15 @@ Tests automatisés :
 ```bash
 npm test
 ```
+
+## Installer une tablette de cuisine
+
+1. Sur la tablette, connectez-vous avec un compte responsable ou administrateur.
+2. **Paramètres → Utilisateurs** : donnez un code PIN à chaque employé (bouton « Code PIN »), ou créez un « Employé sans e-mail ».
+3. **Paramètres → Tablettes de cuisine → Utiliser cet appareil comme tablette de cuisine.**
+4. Ajoutez la page à l'écran d'accueil de la tablette. Chacun touche son nom, tape son code et saisit ses relevés.
+
+Une tablette perdue ou volée se retire en un clic depuis les Paramètres : les sessions ouvertes dessus sont immédiatement coupées.
 
 ## Mise en production
 
@@ -81,6 +92,8 @@ server/
   reminders.js  rappels planifiés et alertes de non-conformité
   photos.js     photos jointes aux enregistrements (stockage disque, quota)
   legal.js      pages légales (CGV, confidentialité, sous-traitance RGPD)
+  kiosk.js      tablette de cuisine partagée et connexion par code PIN
+  landing.js    page d'accueil commerciale et formulaire de démo
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)

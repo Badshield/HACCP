@@ -202,6 +202,30 @@ CREATE TABLE IF NOT EXISTS photos (
 );
 CREATE INDEX IF NOT EXISTS idx_photos_entity ON photos(org_id, entity, entity_id);
 
+-- Tablettes de cuisine partagées : connexion des employés par code PIN.
+CREATE TABLE IF NOT EXISTS devices (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  last_seen_at TEXT,
+  revoked_at TEXT
+);
+
+-- Demandes de contact / démo envoyées depuis la page d'accueil.
+CREATE TABLE IF NOT EXISTS leads (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT,
+  business TEXT,
+  message TEXT,
+  ip TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE TABLE IF NOT EXISTS password_resets (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -256,6 +280,10 @@ const ADDED_COLUMNS = {
   users: {
     notify: 'INTEGER NOT NULL DEFAULT 1',
     password_changed_at: 'TEXT',
+    pin_hash: 'TEXT',
+    pin_failed: 'INTEGER NOT NULL DEFAULT 0',
+    pin_locked_until: 'TEXT',
+    pin_only: 'INTEGER NOT NULL DEFAULT 0',
   },
 };
 
