@@ -16,6 +16,7 @@ const { createPhotos } = require('./photos');
 const { mountLegal, TERMS_VERSION } = require('./legal');
 const { createKiosk, hashPin } = require('./kiosk');
 const { mountLanding } = require('./landing');
+const { snapshotAge } = require('./backup');
 const { createReminders, normalizeTimes, defaultBaseUrl } = require('./reminders');
 
 const RESET_TTL_MS = 60 * 60000;
@@ -75,6 +76,20 @@ function createApp(db, opts = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
+  // En-têtes de sécurité : en premier, pour couvrir toutes les pages (accueil, légales, application, API).
+  app.use((req, res, next) => {
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('X-Frame-Options', 'DENY');
+    // Politique de sécurité du contenu : rien ne peut être chargé depuis un autre site.
+    res.set('Content-Security-Policy', [
+      "default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'self'",
+      "form-action 'self'", "object-src 'none'",
+    ].join('; '));
+    res.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+    res.set('Referrer-Policy', 'same-origin');
+    next();
+  });
   const billing = createBilling(db, opts.billing);
   const mailer = opts.mailer || createMailer();
   const reminders = createReminders({
@@ -87,17 +102,21 @@ function createApp(db, opts = {}) {
   // Le webhook Stripe doit recevoir le corps brut pour vérifier la signature.
   app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billing.webhook);
   app.use(express.json({ limit: '1mb' }));
-  app.use((req, res, next) => {
-    res.set('X-Content-Type-Options', 'nosniff');
-    res.set('X-Frame-Options', 'DENY');
-    res.set('Referrer-Policy', 'same-origin');
-    next();
-  });
 
   const api = express.Router();
 
   // ---------- Public ----------
-  api.get('/health', (req, res) => res.json({ ok: true }));
+  // Supervision (UptimeRobot, Better Stack...) : vérifie aussi la base et l'âge du dernier instantané.
+  api.get('/health', (req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+    } catch {
+      return res.status(503).json({ ok: false, error: 'base de données indisponible' });
+    }
+    const dir = req.app.locals.snapshotDir;
+    const age = dir ? snapshotAge(dir) : null;
+    res.json({ ok: true, ...(dir ? { snapshot_age_min: age } : {}) });
+  });
 
   api.get('/reference', (req, res) => {
     res.json({

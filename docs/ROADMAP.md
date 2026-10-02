@@ -18,11 +18,12 @@ Indispensable avant d'encaisser des abonnements :
 - [ ] Stockage des photos sur un service objet (S3 / Scaleway Object Storage) au-delà d'un serveur
 - [x] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
 - [x] **Page d'accueil commerciale** avec tarifs, FAQ et formulaire de demande de démo
-- [ ] **Sauvegardes automatiques** chiffrées et hors site (Litestream vers S3 pour SQLite)
+- [x] **Sauvegardes automatiques** chiffrées et hors site (restic vers S3, toutes les heures, restauration testée)
+- [ ] Réplication continue de la base (Litestream) pour réduire la perte de données possible à quelques secondes
 - [x] Pages légales : CGV/CGU, politique de confidentialité, mentions légales, **contrat de sous-traitance RGPD** (modèles à faire relire)
 - [x] Export complet des données et suppression du compte (RGPD)
 - [ ] Purge automatique des comptes sans abonnement depuis 12 mois (avec e-mail de préavis 30 jours avant)
-- [ ] Hébergement en France ou dans l'UE (Scaleway, OVHcloud, Clever Cloud)
+- [x] Prêt pour un hébergement en France (Docker Compose, HTTPS automatique, guide pas à pas) — reste à commander le serveur
 
 ## Version 0.3 : différenciation
 

@@ -65,16 +65,17 @@ Une tablette perdue ou volée se retire en un clic depuis les Paramètres : les 
 
 ## Mise en production
 
+Tout est prêt pour un serveur Ubuntu en France : HTTPS automatique (Caddy), sauvegardes chiffrées toutes les heures vers un stockage S3 (restic), pare-feu, mises à jour de sécurité, scripts de mise à jour et de restauration testés.
+
 ```bash
-docker build -t haccp .
-docker run -d -p 3000:3000 -e JWT_SECRET="$(openssl rand -hex 32)" -v haccp-data:/app/data haccp
+sudo ./deploy/install.sh app.mon-domaine.fr vous@mon-domaine.fr   # prépare le serveur et le fichier .env
+nano .env                                                         # complète la configuration
+docker compose up -d --build                                      # démarre l'application
 ```
 
-Pour activer les paiements, suivez [docs/STRIPE.md](docs/STRIPE.md). Pour l'envoi des e-mails (rappels, mot de passe oublié), suivez [docs/EMAILS.md](docs/EMAILS.md).
+👉 Guide pas à pas, budget et procédure en cas de panne : **[docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md)**.
 
-Placez l'application derrière un reverse proxy HTTPS (Caddy, Nginx, Traefik) et définissez `TRUST_PROXY=1`. Voir `.env.example` pour toutes les variables. **Sauvegardez régulièrement le dossier `data/`** : il contient la base de données et les photos (`data/uploads`).
-
-Avant de vendre, complétez les informations légales et faites relire les CGV : voir [docs/LEGAL.md](docs/LEGAL.md).
+Guides complémentaires : [paiements Stripe](docs/STRIPE.md), [e-mails](docs/EMAILS.md), [pages légales](docs/LEGAL.md). Pour vérifier la configuration à tout moment : `npm run check-config`.
 
 ## Architecture
 
@@ -94,6 +95,9 @@ server/
   legal.js      pages légales (CGV, confidentialité, sous-traitance RGPD)
   kiosk.js      tablette de cuisine partagée et connexion par code PIN
   landing.js    page d'accueil commerciale et formulaire de démo
+  config.js     vérification de la configuration de production
+  backup.js     instantanés cohérents de la base pour les sauvegardes
+deploy/         installation du serveur, Caddy (HTTPS), sauvegardes restic, mise à jour, restauration
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)

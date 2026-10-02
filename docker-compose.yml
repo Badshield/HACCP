@@ -1,0 +1,62 @@
+# Mise en production : application + HTTPS (Caddy) + sauvegardes chiffrées (restic).
+# Démarrage : docker compose up -d --build   (voir docs/DEPLOIEMENT.md)
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: "1"
+      DB_FILE: /app/data/haccp.db
+      UPLOAD_DIR: /app/data/uploads
+      BACKUP_SNAPSHOT_DIR: /app/data/snapshots
+    volumes:
+      - haccp-data:/app/data
+    expose:
+      - "3000"
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Définissez DOMAIN dans le fichier .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Définissez ACME_EMAIL (avis Let's Encrypt) dans le fichier .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: *logging
+
+  backup:
+    build: ./deploy/backup
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      RESTIC_CACHE_DIR: /cache
+    volumes:
+      - haccp-data:/data:ro
+      - restic-cache:/cache
+      - ./restore:/restore
+    logging: *logging
+
+volumes:
+  haccp-data:
+  caddy-data:
+  caddy-config:
+  restic-cache:
