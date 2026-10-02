@@ -67,6 +67,8 @@ sudo ./deploy/install.sh app.pack-hygiene.fr vous@pack-hygiene.fr
 
 Le script installe Docker, active le pare-feu (SSH, HTTP et HTTPS seulement) et les mises à jour de sécurité automatiques, puis crée le fichier `.env`. Il y génère le secret de session et le mot de passe de chiffrement des sauvegardes.
 
+**Déconnectez-vous puis reconnectez-vous** (`exit`, puis `ssh …` à nouveau), et revenez dans le dossier avec `cd haccp`. C'est nécessaire pour utiliser Docker sans `sudo`.
+
 > Si le dépôt GitHub est privé, `git clone` vous demandera de vous identifier. Le plus simple est une *deploy key* en lecture seule : GitHub → dépôt → *Settings* → *Deploy keys*.
 
 ## Étape 4 : configuration

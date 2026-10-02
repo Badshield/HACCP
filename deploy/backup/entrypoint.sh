@@ -19,6 +19,11 @@ echo "${SCHEDULE} /usr/local/bin/backup.sh >> /proc/1/fd/1 2>&1" > /etc/crontabs
 echo "Sauvegardes planifiées : « ${SCHEDULE} » (fuseau ${TZ})."
 
 # Première sauvegarde au démarrage pour vérifier immédiatement que tout fonctionne.
+# On attend d'abord le premier instantané de l'application (créé quelques secondes après son démarrage).
+for _ in $(seq 1 60); do
+  [ -f "${BACKUP_SOURCE:-/data}/snapshots/haccp.db" ] && break
+  sleep 2
+done
 /usr/local/bin/backup.sh || true
 
 exec crond -f -l 6

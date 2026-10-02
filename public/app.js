@@ -51,6 +51,7 @@ async function api(path, { method = 'GET', body, raw } = {}) {
     }
     if (state.token && !kioskCall) { logout(); throw new Error('Session expirée'); }
   }
+  if ([502, 503, 504].includes(res.status)) throw new Error('Mise à jour du service en cours : réessayez dans quelques secondes');
   if (raw) { if (!res.ok) throw new Error('Téléchargement impossible'); return res; }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));

@@ -19,6 +19,12 @@
 
 	reverse_proxy app:3000
 
+	# Pendant une mise à jour (quelques secondes), message clair au lieu d'une erreur brute.
+	handle_errors 502 503 504 {
+		header Retry-After 10
+		respond "Mise à jour en cours : l'application revient dans quelques secondes." 503
+	}
+
 	log {
 		output stdout
 		format console
