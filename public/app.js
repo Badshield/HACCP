@@ -67,7 +67,8 @@ function fieldHtml(f, value) {
   const cls = f.full ? 'full' : '';
   if (f.type === 'hidden') return `<input type="hidden" name="${f.name}" value="${esc(v)}">`;
   if (f.type === 'checkbox') {
-    return `<label class="check ${cls}"><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>`;
+    // labelHtml : libellé contenant des liens (texte statique, jamais issu d'une saisie).
+    return `<label class="check ${cls}"><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''} ${req}> <span>${f.labelHtml || esc(f.label)}</span></label>`;
   }
   let input;
   if (f.type === 'select') {
@@ -116,13 +117,109 @@ function modal(title, html) {
   return dlg;
 }
 
+// ---------------------------------------------------------------- photos
+
+const PHOTO_INPUT = `<label class="full photo-input">📷 Photos (facultatif : bon de livraison, étiquette, produit...)
+  <input type="file" accept="image/*" capture="environment" multiple data-photos></label>`;
+
+/** Redimensionne (1600 px max) et compresse en JPEG avant l'envoi : rapide même en 4G. */
+async function compressImage(file, max = 1600, quality = 0.8) {
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) throw new Error(`${file.name} : format d'image non pris en charge`);
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = Object.assign(document.createElement('canvas'), {
+    width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale),
+  });
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+}
+
+async function uploadPhotos(entity, entityId, files) {
+  let ok = 0;
+  for (const file of files) {
+    const blob = await compressImage(file);
+    const res = await fetch(`/api/photos?entity=${entity}&entity_id=${entityId}`, {
+      method: 'POST', headers: { 'Content-Type': 'image/jpeg', Authorization: `Bearer ${state.token}` }, body: blob,
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Envoi de la photo impossible');
+    ok++;
+  }
+  return ok;
+}
+
+/** Ajoute le champ photo à un formulaire et renvoie une fonction qui envoie les fichiers choisis. */
+function attachPhotoInput(form) {
+  form.querySelector('button[type=submit]').parentElement.insertAdjacentHTML('beforebegin', PHOTO_INPUT);
+  const input = form.querySelector('[data-photos]');
+  return async (entity, id) => {
+    if (!input.files.length) return 0;
+    try { return await uploadPhotos(entity, id, [...input.files]); } catch (e) { toast(e.message, true); return 0; }
+  };
+}
+
+const photoCell = (entity) => ({
+  label: 'Photos',
+  html: (r) => `<button type="button" class="secondary small" data-gallery="${entity}:${r.id}">📷 ${r.photo_count ? r.photo_count : '+'}</button>`,
+});
+
+function bindGalleries(root, onChange) {
+  root.querySelectorAll('[data-gallery]').forEach((b) => {
+    b.onclick = () => { const [entity, id] = b.dataset.gallery.split(':'); openGallery(entity, Number(id), onChange); };
+  });
+}
+
+async function photoUrl(id) {
+  const res = await api(`/photos/${id}`, { raw: true });
+  return URL.createObjectURL(await res.blob());
+}
+
+/** Galerie d'un enregistrement : affichage, ajout, suppression (auteur, 15 min). */
+async function openGallery(entity, id, onChange) {
+  const dlg = modal('Photos', '<div class="gallery" data-items><p class="muted">Chargement…</p></div><div class="row" style="margin-top:1rem"><label class="btn secondary">+ Ajouter des photos<input type="file" accept="image/*" capture="environment" multiple hidden data-add></label></div>');
+  const urls = [];
+  dlg.addEventListener('close', () => urls.forEach((u) => URL.revokeObjectURL(u)));
+  const box = dlg.querySelector('[data-items]');
+  const render = async () => {
+    const photos = await api(`/photos?entity=${entity}&entity_id=${id}`);
+    if (!photos.length) { box.innerHTML = '<p class="muted">Aucune photo pour cet enregistrement.</p>'; return; }
+    box.innerHTML = photos.map((p) => `<figure data-photo="${p.id}"><a target="_blank" rel="noopener"><img alt="Photo ${p.id}"></a>
+      <figcaption>${esc(fmtDT(p.created_at))} – ${esc(p.user_name || '')}
+      ${p.user_id === state.user.id && Date.now() - Date.parse(p.created_at) < 15 * 60000 ? `<button class="danger small" data-del="${p.id}">Supprimer</button>` : ''}</figcaption></figure>`).join('');
+    for (const p of photos) {
+      const url = await photoUrl(p.id);
+      urls.push(url);
+      const fig = box.querySelector(`[data-photo="${p.id}"]`);
+      fig.querySelector('img').src = url;
+      fig.querySelector('a').href = url;
+    }
+    box.querySelectorAll('[data-del]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('Supprimer cette photo ?')) return;
+        try { await api(`/photos/${b.dataset.del}`, { method: 'DELETE' }); await render(); onChange?.(); } catch (e) { toast(e.message, true); }
+      };
+    });
+  };
+  dlg.querySelector('[data-add]').onchange = async (e) => {
+    try {
+      box.insertAdjacentHTML('afterbegin', '<p class="muted" data-wait>Envoi en cours…</p>');
+      const n = await uploadPhotos(entity, id, [...e.target.files]);
+      toast(`${n} photo(s) ajoutée(s) ✓`);
+      await render();
+      onChange?.();
+    } catch (err) { toast(err.message, true); box.querySelector('[data-wait]')?.remove(); }
+  };
+  await render();
+}
+
 // ---------------------------------------------------------------- pages génériques
 
 /**
  * Page « registre » : formulaire de saisie + historique filtrable.
  * Les enregistrements sont non modifiables (valeur de preuve HACCP).
  */
-function logPage({ title, intro, endpoint, fields, columns, register, after, query = '' }) {
+function logPage({ title, intro, endpoint, fields, columns, register, after, query = '', photos }) {
+  if (photos) columns = [...columns, photoCell(photos)];
   return async (main) => {
     let from = isoDay(-7);
     let to = isoDay();
@@ -135,9 +232,12 @@ function logPage({ title, intro, endpoint, fields, columns, register, after, que
     const formBox = main.querySelector('[data-form]');
     const renderForm = () => {
       formBox.innerHTML = formHtml(fields);
+      const sendPhotos = photos ? attachPhotoInput(formBox.querySelector('form')) : null;
       bindForm(formBox, fields, async (data, form) => {
         const row = await api(endpoint, { method: 'POST', body: data });
-        toast(row.compliant === 0 ? '⚠ Enregistré – NON CONFORME : une non-conformité a été ouverte' : 'Enregistré ✓', row.compliant === 0);
+        const n = sendPhotos ? await sendPhotos(photos, row.id) : 0;
+        const withPhotos = n ? ` (${n} photo${n > 1 ? 's' : ''})` : '';
+        toast(row.compliant === 0 ? `⚠ Enregistré${withPhotos} – NON CONFORME : une non-conformité a été ouverte` : `Enregistré ✓${withPhotos}`, row.compliant === 0);
         if (after) after(row);
         renderForm();
         load();
@@ -148,6 +248,7 @@ function logPage({ title, intro, endpoint, fields, columns, register, after, que
     const load = async () => {
       const rows = await api(`${endpoint}?from=${from}&to=${to}${query}`);
       list.innerHTML = tableHtml(columns, rows, { rowClass: (r) => (r.compliant === 0 ? 'nc' : '') });
+      bindGalleries(list, load);
     };
     main.querySelector('[data-from]').onchange = (e) => { from = e.target.value; load(); };
     main.querySelector('[data-to]').onchange = (e) => { to = e.target.value; load(); };
@@ -229,6 +330,7 @@ async function temperaturesPage(main) {
     title: 'Historique des relevés',
     endpoint: '/temperatures',
     register: 'temperatures',
+    photos: 'temperature_logs',
     fields: [
       { name: 'equipment_id', label: 'Équipement', type: 'select', required: true, options: equipment.map((e) => [e.id, e.name]) },
       { name: 'value', label: 'Température (°C)', type: 'number', required: true, step: '0.1' },
@@ -282,6 +384,7 @@ async function cleaningPage(main) {
     title: 'Historique du nettoyage',
     endpoint: '/cleaning-logs',
     register: 'cleaning',
+    photos: 'cleaning_logs',
     fields: [
       { name: 'task_id', label: 'Tâche', type: 'select', required: true, options: tasks.map((t) => [t.id, `${t.zone} – ${t.name}`]) },
       { name: 'done_at', label: 'Date / heure', type: 'datetime', default: () => localNow() },
@@ -324,6 +427,7 @@ async function receptionsPage(main) {
     intro: 'Contrôlez chaque livraison : température, emballage, étiquetage et DLC. Les produits non conformes doivent être refusés ou isolés.',
     endpoint: '/receptions',
     register: 'receptions',
+    photos: 'receptions',
     fields: [
       { name: 'supplier_id', label: 'Fournisseur', type: 'select', options: suppliers.map((s) => [s.id, s.name]) },
       { name: 'product', label: 'Produit', required: true },
@@ -378,7 +482,7 @@ const pages = {
     render: (main) => logPage({
       title: 'Refroidissement rapide',
       intro: 'Objectif : passer de +63 °C à +10 °C à cœur en moins de 2 heures (cellule de refroidissement).',
-      endpoint: '/processes', register: 'processes', query: '&type=cooling',
+      endpoint: '/processes', register: 'processes', query: '&type=cooling', photos: 'process_logs',
       fields: processFields('cooling', 63), columns: processColumns,
     })(main),
   },
@@ -387,7 +491,7 @@ const pages = {
     render: (main) => logPage({
       title: 'Remise en température',
       intro: 'Objectif : atteindre +63 °C à cœur en moins d\'1 heure.',
-      endpoint: '/processes', register: 'processes', query: '&type=reheating',
+      endpoint: '/processes', register: 'processes', query: '&type=reheating', photos: 'process_logs',
       fields: processFields('reheating', 3), columns: processColumns,
     })(main),
   },
@@ -447,7 +551,7 @@ const pages = {
     title: 'Nuisibles', icon: '🐭', group: 'Traçabilité',
     render: (main) => logPage({
       title: 'Plan de lutte contre les nuisibles',
-      endpoint: '/pest-controls', register: 'pests',
+      endpoint: '/pest-controls', register: 'pests', photos: 'pest_controls',
       fields: [
         { name: 'kind', label: 'Contrôle', required: true, placeholder: 'Passage prestataire, contrôle appâts...' },
         { name: 'provider', label: 'Prestataire' },
@@ -618,7 +722,15 @@ async function ncPage(main) {
   ];
   const box = main.querySelector('[data-form]');
   box.innerHTML = formHtml(fields, {}, 'Déclarer');
-  bindForm(box, fields, async (data, form) => { await api('/non-conformities', { method: 'POST', body: data }); form.reset(); toast('Déclarée'); load(); refreshBadge(); });
+  const sendPhotos = attachPhotoInput(box.querySelector('form'));
+  bindForm(box, fields, async (data, form) => {
+    const nc = await api('/non-conformities', { method: 'POST', body: data });
+    const n = await sendPhotos('non_conformities', nc.id);
+    form.reset();
+    toast(`Déclarée${n ? ` avec ${n} photo(s)` : ''}`);
+    load();
+    refreshBadge();
+  });
   const list = main.querySelector('[data-list]');
   const load = async () => {
     const rows = await api(`/non-conformities${status ? `?status=${status}` : ''}`);
@@ -627,8 +739,10 @@ async function ncPage(main) {
       { label: 'Description', get: (r) => r.description },
       { label: 'Action corrective', get: (r) => r.corrective_action },
       { label: 'Statut', html: (r) => (r.status === 'open' ? '<span class="pill bad">Ouverte</span>' : `<span class="pill ok">Clôturée</span><div class="muted">${esc(fmtDT(r.closed_at))} – ${esc(r.closed_by_name)}</div>`) },
+      photoCell('non_conformities'),
       { label: '', html: (r) => (r.status === 'open' ? `<button class="small" data-close="${r.id}">Clôturer</button>` : '') },
     ], rows);
+    bindGalleries(list, load);
     list.querySelectorAll('[data-close]').forEach((b) => {
       b.onclick = () => {
         const nc = rows.find((r) => r.id === Number(b.dataset.close));
@@ -810,7 +924,11 @@ async function settingsPage(main) {
       <div class="row"><select data-template style="width:auto"></select><button class="secondary" data-apply>Ajouter les éléments du modèle</button></div></div>` : ''}
     ${can('manager') ? '<div class="card"><div class="row"><h2>Utilisateurs</h2><span class="spacer"></span>' + (can('admin') ? '<button data-add-user>+ Ajouter</button>' : '') + '</div><div data-users></div></div>' : ''}
     ${can('manager') ? '<div class="card"><h2>Rappels et alertes par e-mail</h2><div data-notif></div></div>' : ''}
-    <div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>`;
+    <div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>
+    ${can('admin') ? `<div class="card"><h2>Mes données</h2>
+      <p class="muted">Vous restez propriétaire de vos données. ${state.org?.terms_accepted_at ? `CGV acceptées le ${esc(fmtDT(state.org.terms_accepted_at))} (version du ${esc(fmtD(state.org.terms_version))}).` : ''}</p>
+      <div class="row"><button class="secondary" data-export>⬇ Exporter toutes mes données (JSON)</button>
+      <span class="spacer"></span><button class="danger" data-delete-account>Supprimer définitivement le compte</button></div></div>` : ''}`;
   const orgBox = main.querySelector('[data-org]');
   if (orgBox) {
     orgBox.innerHTML = formHtml(orgFields, state.org);
@@ -837,6 +955,23 @@ async function settingsPage(main) {
     toast('Mot de passe modifié ✓ (vos autres appareils ont été déconnectés)');
   });
   await notificationsSection(main);
+  main.querySelector('[data-export]')?.addEventListener('click', () => download('/organization/export', `export-${isoDay()}.json`));
+  main.querySelector('[data-delete-account]')?.addEventListener('click', () => {
+    const f = [
+      { name: 'confirm', label: `Saisissez le nom de l'établissement : ${state.org.name}`, required: true, full: true },
+      { name: 'password', label: 'Votre mot de passe', type: 'password', required: true, full: true },
+    ];
+    const dlg = modal('Supprimer le compte', `<p class="banner bad">Cette action est <strong>irréversible</strong> : tous les registres, photos et
+      utilisateurs de l'établissement seront effacés et l'abonnement résilié. Pensez à exporter vos registres (PDF) et vos données avant :
+      ils peuvent vous être demandés lors d'un contrôle.</p>${formHtml(f, {}, 'Supprimer définitivement')}`);
+    dlg.querySelector('button[type=submit]').classList.add('danger');
+    bindForm(dlg, f, async (data) => {
+      await api('/organization/delete', { method: 'POST', body: data });
+      dlg.close();
+      alert('Votre compte a été supprimé. Merci d\'avoir utilisé Pack Hygiène.');
+      logout();
+    });
+  });
   const usersBox = main.querySelector('[data-users]');
   const loadUsers = async () => {
     const users = await api('/users');
@@ -865,7 +1000,7 @@ function authCard(title, intro, inner) {
   app.innerHTML = `<div class="auth"><div class="card">
     <h1><img src="/icon.svg" width="32" height="32" alt=""> ${esc(title)}</h1>
     <p class="muted">${intro}</p><div data-form>${inner}</div>
-    <p class="muted"><a href="#/login">← Retour à la connexion</a></p></div></div>`;
+    <p class="muted"><a href="#/login">← Retour à la connexion</a></p></div><p class="legal-links"><a href="/legal/mentions" target="_blank">Mentions légales</a> · <a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a></p></div>`;
   return app.querySelector('[data-form]');
 }
 
@@ -920,6 +1055,10 @@ async function authPage(mode = 'login') {
       { name: 'name', label: 'Votre nom', required: true, full: true },
       { name: 'email', label: 'E-mail', type: 'email', required: true, full: true },
       { name: 'password', label: 'Mot de passe (8 caractères min.)', type: 'password', required: true, full: true },
+      {
+        name: 'accept_terms', type: 'checkbox', required: true, full: true,
+        labelHtml: 'J\'accepte les <a href="/legal/cgv" target="_blank">CGV</a>, la <a href="/legal/confidentialite" target="_blank">politique de confidentialité</a> et le <a href="/legal/sous-traitance" target="_blank">contrat de sous-traitance</a>',
+      },
     ]
     : [
       { name: 'email', label: 'E-mail', type: 'email', required: true, full: true },
@@ -930,7 +1069,7 @@ async function authPage(mode = 'login') {
     <p class="muted">${signup ? 'Créez votre espace en 1 minute. 30 jours d\'essai gratuit, sans carte bancaire.' : 'Connectez-vous à votre espace.'}</p>
     <div data-form></div>
     <p class="muted">${signup ? 'Déjà inscrit ? <a href="#/login">Se connecter</a>' : '<a href="#/forgot">Mot de passe oublié ?</a><br>Nouveau client ? <a href="#/signup">Créer un compte</a>'}</p>
-  </div></div>`;
+  </div><p class="legal-links"><a href="/legal/mentions" target="_blank">Mentions légales</a> · <a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a></p></div>`;
   const box = app.querySelector('[data-form]');
   box.innerHTML = formHtml(fields, {}, signup ? 'Créer mon compte' : 'Se connecter');
   bindForm(box, fields, async (data) => {
@@ -948,6 +1087,7 @@ async function loadSession() {
   state.user = me.user;
   state.org = me.organization;
   state.access = me.access;
+  state.terms = me.terms;
   state.ref = ref;
 }
 
@@ -985,12 +1125,34 @@ function renderShell() {
       <div class="org-name">${esc(state.org?.name)}<br>${esc(state.user?.name)} · ${esc(ROLES[state.user?.role])}</div>
       ${nav}
       <div class="nav-group">Compte</div><a href="#" data-logout><span>🚪</span> Déconnexion</a>
+      <div class="nav-legal"><a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a> · <a href="/legal/mentions" target="_blank">Mentions légales</a></div>
     </nav><main class="main"><div data-banner class="no-print"></div><div data-main></div></main></div>`;
   renderBanner();
   app.querySelector('[data-logout]').onclick = (e) => { e.preventDefault(); logout(); };
   app.querySelector('[data-menu]').onclick = () => app.querySelector('.sidebar').classList.toggle('open');
   app.querySelectorAll('.sidebar a').forEach((a) => a.addEventListener('click', () => app.querySelector('.sidebar').classList.remove('open')));
   return app.querySelector('[data-main]');
+}
+
+function askTermsIfNeeded() {
+  if (!state.terms?.outdated || !can('admin') || document.querySelector('dialog[data-terms]')) return;
+  const dlg = modal('Nos conditions évoluent', `<p>Nos conditions générales ont été mises à jour (version du ${esc(fmtD(state.terms.version))}).
+    Merci de les lire et de les accepter pour continuer à utiliser le service.</p>
+    <ul><li><a href="/legal/cgv" target="_blank">Conditions générales de vente</a></li>
+    <li><a href="/legal/confidentialite" target="_blank">Politique de confidentialité</a></li>
+    <li><a href="/legal/sous-traitance" target="_blank">Contrat de sous-traitance (RGPD)</a></li></ul>
+    <div class="row"><button data-accept>J'ai lu et j'accepte</button></div>`);
+  dlg.dataset.terms = '1';
+  dlg.querySelector('[data-close]').remove();
+  dlg.addEventListener('cancel', (e) => e.preventDefault());
+  dlg.querySelector('[data-accept]').onclick = async () => {
+    try {
+      await api('/organization/accept-terms', { method: 'POST', body: { version: state.terms.version } });
+      await loadSession();
+      dlg.close();
+      toast('Merci ✓');
+    } catch (e) { toast(e.message, true); }
+  };
 }
 
 async function route() {
@@ -1006,6 +1168,7 @@ async function route() {
   const main = renderShell();
   main.innerHTML = '<p class="muted">Chargement…</p>';
   try { await page.render(main); } catch (e) { main.innerHTML = `<p class="pill bad">${esc(e.message)}</p>`; }
+  askTermsIfNeeded();
 }
 
 window.addEventListener('hashchange', route);

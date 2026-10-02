@@ -14,10 +14,13 @@ Indispensable avant d'encaisser des abonnements :
 - [x] **Rappels automatiques par e-mail** : relevés oubliés, alerte immédiate de non-conformité, récapitulatif du soir
 - [ ] Rappels par SMS (Brevo SMS) pour les alertes critiques
 - [x] **Modèles de démarrage par métier** (restaurant, boulangerie, boucherie, traiteur, food-truck, collectivité) : équipements, plan de nettoyage et durées de vie préremplis à l'inscription
-- [ ] **Photos** jointes aux réceptions et aux non-conformités (bon de livraison, étiquette, produit)
+- [x] **Photos** jointes aux réceptions, non-conformités, nettoyages, process et nuisibles, avec annexe dans le classeur PDF
+- [ ] Stockage des photos sur un service objet (S3 / Scaleway Object Storage) au-delà d'un serveur
 - [ ] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
 - [ ] **Sauvegardes automatiques** chiffrées et hors site (Litestream vers S3 pour SQLite)
-- [ ] Pages légales : CGV/CGU, politique de confidentialité, mentions légales, **contrat de sous-traitance RGPD** (DPA)
+- [x] Pages légales : CGV/CGU, politique de confidentialité, mentions légales, **contrat de sous-traitance RGPD** (modèles à faire relire)
+- [x] Export complet des données et suppression du compte (RGPD)
+- [ ] Purge automatique des comptes sans abonnement depuis 12 mois (avec e-mail de préavis 30 jours avant)
 - [ ] Hébergement en France ou dans l'UE (Scaleway, OVHcloud, Clever Cloud)
 
 ## Version 0.3 : différenciation

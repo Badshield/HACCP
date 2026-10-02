@@ -90,7 +90,8 @@ function createBilling(db, opts = {}) {
   const access = (orgOrId) => accessFor(typeof orgOrId === 'object' ? orgOrId : getOrg.get(orgOrId), { enabled });
 
   // ---------- Garde : lecture seule sans abonnement ----------
-  const WRITE_ALLOWED = [/^\/billing\//, /^\/me\//];
+  // Toujours possibles, même en lecture seule : payer, gérer son compte, accepter les CGV, supprimer ses données.
+  const WRITE_ALLOWED = [/^\/billing\//, /^\/me\//, /^\/organization\/(accept-terms|delete)$/];
   function guard(req, res, next) {
     if (req.method === 'GET' || WRITE_ALLOWED.some((re) => re.test(req.path))) return next();
     if (access(req.user.org_id).readOnly) {
@@ -219,7 +220,19 @@ function createBilling(db, opts = {}) {
     }
   });
 
-  return { enabled, access, guard, webhook, router };
+  /** Résilie immédiatement l'abonnement Stripe (suppression du compte). */
+  async function cancelSubscription(org) {
+    if (!stripe || !org.stripe_subscription_id) return;
+    if (!org.subscription_status || ['canceled', 'incomplete_expired'].includes(org.subscription_status)) return;
+    try {
+      await stripe.subscriptions.cancel(org.stripe_subscription_id);
+    } catch (e) {
+      // Abonnement déjà supprimé côté Stripe : rien à faire.
+      if (e.code !== 'resource_missing') throw Object.assign(e, { status: 502, message: `Résiliation Stripe impossible : ${e.message}` });
+    }
+  }
+
+  return { enabled, access, guard, webhook, router, cancelSubscription };
 }
 
 module.exports = { createBilling, accessFor, trialEnd, PLANS, TRIAL_DAYS };

@@ -20,7 +20,7 @@ async function call(path, { token, method = 'GET', body } = {}) {
 }
 
 async function signup(org, email) {
-  const r = await call('/api/auth/signup', { method: 'POST', body: { organization: org, name: 'Admin', email, password: 'motdepasse' } });
+  const r = await call('/api/auth/signup', { method: 'POST', body: { organization: org, name: 'Admin', email, password: 'motdepasse', accept_terms: true } });
   assert.equal(r.status, 201);
   return r.body.token;
 }
@@ -34,7 +34,7 @@ test.after(() => server.close());
 
 test('inscription, connexion et authentification', async () => {
   await signup('Resto A', 'a@test.fr');
-  const dup = await call('/api/auth/signup', { method: 'POST', body: { organization: 'X', name: 'X', email: 'a@test.fr', password: 'motdepasse' } });
+  const dup = await call('/api/auth/signup', { method: 'POST', body: { organization: 'X', name: 'X', email: 'a@test.fr', password: 'motdepasse', accept_terms: true } });
   assert.equal(dup.status, 409);
   assert.equal((await call('/api/auth/login', { method: 'POST', body: { email: 'a@test.fr', password: 'mauvais' } })).status, 401);
   const ok = await call('/api/auth/login', { method: 'POST', body: { email: 'A@test.fr', password: 'motdepasse' } });

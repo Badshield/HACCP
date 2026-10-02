@@ -22,6 +22,8 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 📄 **Rapports** | Classeur HACCP PDF complet ou par registre, exports CSV (Excel). |
 | 🧩 **Modèles de métiers** | À l'inscription : restaurant, boulangerie, boucherie, traiteur, food-truck ou restauration collective. Équipements, plan de nettoyage et durées de vie préremplis. |
 | 💳 **Abonnements** | Essai gratuit de 30 jours, paiement Stripe, portail client, lecture seule sans abonnement (voir [docs/STRIPE.md](docs/STRIPE.md)). |
+| 📷 **Photos** | Bon de livraison, étiquette, produit non conforme, traces de nuisibles : prises au téléphone, compressées automatiquement, ajoutées en annexe du classeur PDF. |
+| ⚖️ **Pages légales et RGPD** | Mentions légales, CGV, confidentialité, contrat de sous-traitance ; acceptation tracée, export complet et suppression du compte (voir [docs/LEGAL.md](docs/LEGAL.md)). |
 | 🔔 **Rappels et alertes** | E-mail si les températures ne sont pas relevées à l'heure, alerte immédiate à chaque non-conformité, récapitulatif du soir (voir [docs/EMAILS.md](docs/EMAILS.md)). |
 | 🔑 **Mot de passe oublié** | Lien sécurisé à usage unique, déconnexion des autres sessions. |
 | 📊 **Tableau de bord** | Équipements à relever, nettoyages en retard, NC ouvertes, taux de conformité sur 30 jours. |
@@ -59,7 +61,9 @@ docker run -d -p 3000:3000 -e JWT_SECRET="$(openssl rand -hex 32)" -v haccp-data
 
 Pour activer les paiements, suivez [docs/STRIPE.md](docs/STRIPE.md). Pour l'envoi des e-mails (rappels, mot de passe oublié), suivez [docs/EMAILS.md](docs/EMAILS.md).
 
-Placez l'application derrière un reverse proxy HTTPS (Caddy, Nginx, Traefik) et définissez `TRUST_PROXY=1`. Voir `.env.example` pour toutes les variables. **Sauvegardez régulièrement le dossier `data/`** : il contient la base de données.
+Placez l'application derrière un reverse proxy HTTPS (Caddy, Nginx, Traefik) et définissez `TRUST_PROXY=1`. Voir `.env.example` pour toutes les variables. **Sauvegardez régulièrement le dossier `data/`** : il contient la base de données et les photos (`data/uploads`).
+
+Avant de vendre, complétez les informations légales et faites relire les CGV : voir [docs/LEGAL.md](docs/LEGAL.md).
 
 ## Architecture
 
@@ -75,6 +79,8 @@ server/
   templates.js  modèles de démarrage par métier
   mailer.js     envoi d'e-mails (SMTP) et mise en forme
   reminders.js  rappels planifiés et alertes de non-conformité
+  photos.js     photos jointes aux enregistrements (stockage disque, quota)
+  legal.js      pages légales (CGV, confidentialité, sous-traitance RGPD)
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)

@@ -3,6 +3,8 @@
 const rules = require('./rules');
 const { resource: baseResource, ValidationError } = require('./resource');
 
+const { photoCount } = require('./photos');
+
 const LOGGED = { user_id: { computed: true } };
 
 function fmtTemp(v) {
@@ -114,7 +116,7 @@ function mountModules(api, db, hooks = {}) {
     mode: 'log',
     dateField: 'recorded_at',
     filters: ['equipment_id'],
-    select: `SELECT t.*, e.name AS equipment_name, e.min_temp, e.max_temp, u.name AS user_name
+    select: `SELECT t.*, e.name AS equipment_name, e.min_temp, e.max_temp, u.name AS user_name, ${photoCount('temperature_logs')}
              FROM temperature_logs t JOIN equipment e ON e.id = t.equipment_id
              LEFT JOIN users u ON u.id = t.user_id`,
     fields: {
@@ -138,7 +140,7 @@ function mountModules(api, db, hooks = {}) {
     table: 'cleaning_logs',
     mode: 'log',
     dateField: 'done_at',
-    select: `SELECT t.*, c.zone, c.name AS task_name, u.name AS user_name
+    select: `SELECT t.*, c.zone, c.name AS task_name, u.name AS user_name, ${photoCount('cleaning_logs')}
              FROM cleaning_logs t JOIN cleaning_tasks c ON c.id = t.task_id
              LEFT JOIN users u ON u.id = t.user_id`,
     fields: {
@@ -153,7 +155,7 @@ function mountModules(api, db, hooks = {}) {
     table: 'receptions',
     mode: 'log',
     dateField: 'received_at',
-    select: `SELECT t.*, s.name AS supplier_name, u.name AS user_name
+    select: `SELECT t.*, s.name AS supplier_name, u.name AS user_name, ${photoCount('receptions')}
              FROM receptions t LEFT JOIN suppliers s ON s.id = t.supplier_id
              LEFT JOIN users u ON u.id = t.user_id`,
     fields: {
@@ -181,7 +183,7 @@ function mountModules(api, db, hooks = {}) {
     mode: 'log',
     dateField: 'start_at',
     filters: ['type'],
-    select: `SELECT t.*, u.name AS user_name FROM process_logs t LEFT JOIN users u ON u.id = t.user_id`,
+    select: `SELECT t.*, u.name AS user_name, ${photoCount('process_logs')} FROM process_logs t LEFT JOIN users u ON u.id = t.user_id`,
     fields: {
       type: { type: 'enum', values: ['cooling', 'reheating'], required: true, label: 'Type' },
       product: { type: 'string', required: true, label: 'Produit' },
@@ -251,7 +253,7 @@ function mountModules(api, db, hooks = {}) {
     table: 'pest_controls',
     mode: 'log',
     dateField: 'checked_at',
-    select: `SELECT t.*, u.name AS user_name FROM pest_controls t LEFT JOIN users u ON u.id = t.user_id`,
+    select: `SELECT t.*, u.name AS user_name, ${photoCount('pest_controls')} FROM pest_controls t LEFT JOIN users u ON u.id = t.user_id`,
     fields: {
       provider: { type: 'string' },
       kind: { type: 'string', required: true, label: 'Type de contrôle' },

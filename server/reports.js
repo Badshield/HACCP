@@ -24,6 +24,8 @@ const conf = (v) => (v ? 'C' : 'NC');
 const REGISTERS = {
   temperatures: {
     title: 'Relevés de températures',
+    photoEntity: 'temperature_logs',
+    caption: (r) => `${r.equipment_name} : ${r.value} °C`,
     sql: `SELECT t.*, e.name AS equipment_name, e.min_temp, e.max_temp, u.name AS user_name FROM temperature_logs t
           JOIN equipment e ON e.id = t.equipment_id LEFT JOIN users u ON u.id = t.user_id
           WHERE t.org_id = ? AND t.recorded_at >= ? AND t.recorded_at < date(?, '+1 day') ORDER BY t.recorded_at`,
@@ -39,6 +41,8 @@ const REGISTERS = {
   },
   cleaning: {
     title: 'Plan de nettoyage et désinfection',
+    photoEntity: 'cleaning_logs',
+    caption: (r) => `Nettoyage ${r.zone} – ${r.task_name}`,
     sql: `SELECT t.*, c.zone, c.name AS task_name, c.product, u.name AS user_name FROM cleaning_logs t
           JOIN cleaning_tasks c ON c.id = t.task_id LEFT JOIN users u ON u.id = t.user_id
           WHERE t.org_id = ? AND t.done_at >= ? AND t.done_at < date(?, '+1 day') ORDER BY t.done_at`,
@@ -53,6 +57,8 @@ const REGISTERS = {
   },
   receptions: {
     title: 'Contrôles à réception',
+    photoEntity: 'receptions',
+    caption: (r) => `Réception ${r.product}${r.supplier_name ? ` (${r.supplier_name})` : ''}${r.lot_number ? `, lot ${r.lot_number}` : ''}`,
     sql: `SELECT t.*, s.name AS supplier_name, u.name AS user_name FROM receptions t
           LEFT JOIN suppliers s ON s.id = t.supplier_id LEFT JOIN users u ON u.id = t.user_id
           WHERE t.org_id = ? AND t.received_at >= ? AND t.received_at < date(?, '+1 day') ORDER BY t.received_at`,
@@ -70,6 +76,8 @@ const REGISTERS = {
   },
   processes: {
     title: 'Refroidissements et remises en température',
+    photoEntity: 'process_logs',
+    caption: (r) => `${r.type === 'cooling' ? 'Refroidissement' : 'Remise en température'} ${r.product}`,
     sql: `SELECT t.*, u.name AS user_name FROM process_logs t LEFT JOIN users u ON u.id = t.user_id
           WHERE t.org_id = ? AND t.start_at >= ? AND t.start_at < date(?, '+1 day') ORDER BY t.start_at`,
     columns: [
@@ -112,6 +120,8 @@ const REGISTERS = {
   },
   pests: {
     title: 'Plan de lutte contre les nuisibles',
+    photoEntity: 'pest_controls',
+    caption: (r) => `Nuisibles : ${r.kind}`,
     sql: `SELECT t.*, u.name AS user_name FROM pest_controls t LEFT JOIN users u ON u.id = t.user_id
           WHERE t.org_id = ? AND t.checked_at >= ? AND t.checked_at < date(?, '+1 day') ORDER BY t.checked_at`,
     columns: [
@@ -125,6 +135,8 @@ const REGISTERS = {
   },
   nonconformities: {
     title: 'Non-conformités et actions correctives',
+    photoEntity: 'non_conformities',
+    caption: (r) => `Non-conformité : ${r.description}`,
     sql: `SELECT n.*, u.name AS user_name, c.name AS closer FROM non_conformities n
           LEFT JOIN users u ON u.id = n.created_by LEFT JOIN users c ON c.id = n.closed_by
           WHERE n.org_id = ? AND n.created_at >= ? AND n.created_at < date(?, '+1 day') ORDER BY n.created_at`,
@@ -184,7 +196,42 @@ function drawTable(doc, rawColumns, rows) {
   if (!rows.length) doc.font('Helvetica-Oblique').text('Aucun enregistrement sur la période.', left).font('Helvetica');
 }
 
-function mountReports(api, db) {
+const ANNEX_MAX = 120;
+
+/** Annexe : les photos des enregistrements de la période, 2 par ligne. */
+function drawPhotoAnnex(doc, list) {
+  doc.addPage();
+  doc.fontSize(14).font('Helvetica-Bold').text('Annexe – Photos');
+  doc.fontSize(9).font('Helvetica').fillColor('#555555')
+    .text(list.length > ANNEX_MAX ? `${ANNEX_MAX} premières photos sur ${list.length}.` : `${list.length} photo(s).`)
+    .fillColor('#000000').moveDown(0.5);
+  const left = doc.page.margins.left;
+  const colW = (doc.page.width - left - doc.page.margins.right - 16) / 2;
+  const imgH = 190;
+  const cellH = imgH + 48;
+  let col = 0;
+  let y = doc.y;
+  for (const ph of list.slice(0, ANNEX_MAX)) {
+    if (col === 0 && y + cellH > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      y = doc.y;
+    }
+    const x = left + col * (colW + 16);
+    try {
+      doc.image(ph.path, x, y, { fit: [colW, imgH], align: 'center', valign: 'center' });
+    } catch {
+      doc.rect(x, y, colW, imgH).stroke('#cccccc');
+      doc.fontSize(8).text('Image indisponible', x, y + imgH / 2, { width: colW, align: 'center' });
+    }
+    doc.fontSize(8).font('Helvetica-Bold').text(ph.caption || ph.register, x, y + imgH + 4, { width: colW, height: 22, ellipsis: true });
+    doc.font('Helvetica').fillColor('#555555').text(`${fmtDateTime(ph.created_at)} – ${ph.register}`, x, y + imgH + 28, { width: colW })
+      .fillColor('#000000');
+    col = (col + 1) % 2;
+    if (col === 0) y += cellH;
+  }
+}
+
+function mountReports(api, db, photos) {
   function period(req) {
     const to = DATE_RE.test(req.query.to || '') ? req.query.to : new Date().toISOString().slice(0, 10);
     const from = DATE_RE.test(req.query.from || '') ? req.query.from
@@ -237,13 +284,21 @@ function mountReports(api, db) {
       `huile à ${rules.OIL_MAX_POLAR} % max. de composés polaires. C = conforme, NC = non conforme (lignes surlignées).`
     ).fillColor('#000000');
 
+    const annex = [];
     for (const k of keys) {
       const reg = REGISTERS[k];
       doc.addPage();
       doc.fontSize(14).font('Helvetica-Bold').text(reg.title);
       doc.fontSize(9).font('Helvetica').text(`${org.name} – du ${fmtDate(from)} au ${fmtDate(to)}`).moveDown(0.5);
-      drawTable(doc, reg.columns, db.prepare(reg.sql).all(req.user.org_id, from, to));
+      const rows = db.prepare(reg.sql).all(req.user.org_id, from, to);
+      drawTable(doc, reg.columns, rows);
+      if (photos && reg.photoEntity) {
+        for (const ph of photos.forReport(req.user.org_id, reg.photoEntity, rows.map((r) => r.id))) {
+          annex.push({ ...ph, caption: reg.caption(rows.find((r) => r.id === ph.entity_id)), register: reg.title });
+        }
+      }
     }
+    if (annex.length) drawPhotoAnnex(doc, annex);
 
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {

@@ -12,6 +12,8 @@ const { mountReports } = require('./reports');
 const { createBilling, trialEnd } = require('./billing');
 const { TEMPLATES, listTemplates, applyTemplate } = require('./templates');
 const { createMailer, compose, appUrl } = require('./mailer');
+const { createPhotos } = require('./photos');
+const { mountLegal, TERMS_VERSION } = require('./legal');
 const { createReminders, normalizeTimes, defaultBaseUrl } = require('./reminders');
 
 const RESET_TTL_MS = 60 * 60000;
@@ -64,6 +66,7 @@ function createApp(db, opts = {}) {
   const reminders = createReminders({
     db, mailer, access: billing.access, baseUrl: opts.baseUrl !== undefined ? opts.baseUrl : defaultBaseUrl(),
   });
+  const photos = createPhotos(db, opts.photos);
   app.locals.mailer = mailer;
   app.locals.reminders = reminders;
   // Le webhook Stripe doit recevoir le corps brut pour vérifier la signature.
@@ -96,9 +99,12 @@ function createApp(db, opts = {}) {
 
   // Inscription d'un nouveau client : crée l'établissement et son administrateur.
   api.post('/auth/signup', (req, res) => {
-    const { organization, name, email, password, template } = req.body || {};
+    const { organization, name, email, password, template, accept_terms: acceptTerms } = req.body || {};
     if (!organization || !name || !EMAIL_RE.test(email || '')) {
       return res.status(400).json({ error: 'Établissement, nom et e-mail valides requis' });
+    }
+    if (acceptTerms !== true) {
+      return res.status(400).json({ error: 'Vous devez accepter les CGV et la politique de confidentialité' });
     }
     if (template && !TEMPLATES[template]) return res.status(400).json({ error: 'Modèle de métier inconnu' });
     checkPassword(password);
@@ -107,8 +113,8 @@ function createApp(db, opts = {}) {
     }
     const hash = bcrypt.hashSync(password, 10);
     const user = db.transaction(() => {
-      const org = db.prepare('INSERT INTO organizations (name, trial_ends_at) VALUES (?, ?)')
-        .run(String(organization).trim(), trialEnd());
+      const org = db.prepare('INSERT INTO organizations (name, trial_ends_at, terms_accepted_at, terms_version) VALUES (?,?,?,?)')
+        .run(String(organization).trim(), trialEnd(), nowIso(), TERMS_VERSION);
       if (template) applyTemplate(db, Number(org.lastInsertRowid), template);
       const info = db
         .prepare("INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?, 'admin')")
@@ -179,7 +185,63 @@ function createApp(db, opts = {}) {
 
   api.get('/me', (req, res) => {
     const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.user.org_id);
-    res.json({ user: publicUser(req.user), organization: publicOrg(org), access: billing.access(org) });
+    res.json({
+      user: publicUser(req.user),
+      organization: publicOrg(org),
+      access: billing.access(org),
+      terms: { version: TERMS_VERSION, outdated: org.terms_version !== TERMS_VERSION },
+    });
+  });
+
+  // ---------- CGV et droits RGPD ----------
+  api.post('/organization/accept-terms', requireRole('admin'), (req, res) => {
+    if (req.body?.version !== TERMS_VERSION) return res.status(400).json({ error: 'Version des CGV obsolète, rechargez la page' });
+    db.prepare('UPDATE organizations SET terms_accepted_at = ?, terms_version = ? WHERE id = ?').run(nowIso(), TERMS_VERSION, req.user.org_id);
+    db.prepare('INSERT INTO audit_log (org_id, user_id, action, entity, entity_id) VALUES (?,?,?,?,?)')
+      .run(req.user.org_id, req.user.id, 'accept_terms', 'organizations', req.user.org_id);
+    res.json({ version: TERMS_VERSION });
+  });
+
+  // Export complet (droit à la portabilité, réversibilité) : toutes les données de l'établissement.
+  const EXPORT_TABLES = ['equipment', 'temperature_logs', 'cleaning_tasks', 'cleaning_logs', 'suppliers', 'receptions',
+    'process_logs', 'oil_checks', 'labels', 'shelf_life_presets', 'recipes', 'pest_controls', 'trainings', 'non_conformities',
+    'photos', 'audit_log'];
+  api.get('/organization/export', requireRole('admin'), (req, res) => {
+    const orgId = req.user.org_id;
+    const data = {
+      format: 'pack-hygiene-export',
+      exported_at: nowIso(),
+      organization: publicOrg(db.prepare('SELECT * FROM organizations WHERE id = ?').get(orgId)),
+      users: db.prepare('SELECT * FROM users WHERE org_id = ?').all(orgId)
+        .map(({ password_hash: _h, password_changed_at: _p, ...u }) => u),
+    };
+    for (const t of EXPORT_TABLES) data[t] = db.prepare(`SELECT * FROM ${t} WHERE org_id = ? ORDER BY id`).all(orgId);
+    data.photos = data.photos.map(({ filename: _f, ...p }) => ({ ...p, download: `/api/photos/${p.id}` }));
+    res.set('Content-Disposition', `attachment; filename="export-${orgId}-${nowIso().slice(0, 10)}.json"`);
+    res.json(data);
+  });
+
+  // Suppression définitive du compte (droit à l'effacement).
+  api.post('/organization/delete', requireRole('admin'), async (req, res, next) => {
+    try {
+      const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.user.org_id);
+      const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+      if (!bcrypt.compareSync(String(req.body?.password || ''), row.password_hash)) {
+        return res.status(400).json({ error: 'Mot de passe incorrect' });
+      }
+      if (String(req.body?.confirm || '').trim() !== org.name) {
+        return res.status(400).json({ error: 'Saisissez exactement le nom de l\'établissement pour confirmer' });
+      }
+      await billing.cancelSubscription(org);
+      db.transaction(() => {
+        for (const t of ['audit_log', 'reminder_log']) db.prepare(`DELETE FROM ${t} WHERE org_id = ?`).run(org.id);
+        db.prepare('DELETE FROM organizations WHERE id = ?').run(org.id);
+      })();
+      photos.removeOrgFiles(org.id);
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
   });
 
   api.use('/billing', billing.router);
@@ -322,7 +384,8 @@ function createApp(db, opts = {}) {
   mountModules(api, db, { onNonConformity: (e) => reminders.nonConformity(e) });
 
   // ---------- Non-conformités ----------
-  const ncSelect = `SELECT n.*, u.name AS created_by_name, c.name AS closed_by_name FROM non_conformities n
+  const ncSelect = `SELECT n.*, u.name AS created_by_name, c.name AS closed_by_name,
+    (SELECT COUNT(*) FROM photos p WHERE p.entity = 'non_conformities' AND p.entity_id = n.id) AS photo_count FROM non_conformities n
     LEFT JOIN users u ON u.id = n.created_by LEFT JOIN users c ON c.id = n.closed_by`;
 
   api.get('/non-conformities', (req, res) => {
@@ -399,11 +462,14 @@ function createApp(db, opts = {}) {
     });
   });
 
-  mountReports(api, db);
+  api.use('/photos', photos.router);
+
+  mountReports(api, db, photos);
 
   app.use('/api', api);
   app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue' }));
 
+  mountLegal(app);
   app.use(express.static(path.join(__dirname, '..', 'public')));
   app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 

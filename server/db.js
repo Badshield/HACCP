@@ -188,6 +188,20 @@ CREATE TABLE IF NOT EXISTS non_conformities (
   closed_at TEXT
 );
 
+-- Photos jointes aux enregistrements (fichiers stockés sur disque).
+CREATE TABLE IF NOT EXISTS photos (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  entity TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_photos_entity ON photos(org_id, entity, entity_id);
+
 CREATE TABLE IF NOT EXISTS password_resets (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -236,6 +250,8 @@ const ADDED_COLUMNS = {
     notif_grace_min: 'INTEGER NOT NULL DEFAULT 30',
     notif_digest_time: "TEXT NOT NULL DEFAULT '20:00'",
     notif_nc_alert: 'INTEGER NOT NULL DEFAULT 1',
+    terms_accepted_at: 'TEXT',
+    terms_version: 'TEXT',
   },
   users: {
     notify: 'INTEGER NOT NULL DEFAULT 1',

@@ -12,10 +12,11 @@ const WEBHOOK_SECRET = 'whsec_test_secret';
 const realStripe = new Stripe('sk_test_dummy');
 
 // Faux client Stripe : enregistre les appels, aucun accès réseau.
-const calls = { customers: [], checkout: [], portal: [] };
+const calls = { customers: [], checkout: [], portal: [], cancel: [] };
 const fakeStripe = {
   customers: { create: async (p) => { calls.customers.push(p); return { id: `cus_${calls.customers.length}` }; } },
   checkout: { sessions: { create: async (p) => { calls.checkout.push(p); return { url: 'https://checkout.stripe.test/session' }; } } },
+  subscriptions: { cancel: async (id) => { calls.cancel.push(id); return { id, status: 'canceled' }; } },
   billingPortal: { sessions: { create: async (p) => { calls.portal.push(p); return { url: 'https://billing.stripe.test/portal' }; } } },
   webhooks: realStripe.webhooks,
 };
@@ -37,7 +38,7 @@ async function call(path, { token, method = 'GET', body } = {}) {
 async function signup(email, template) {
   const r = await call('/api/auth/signup', {
     method: 'POST',
-    body: { organization: `Org ${email}`, name: 'Admin', email, password: 'motdepasse', template },
+    body: { organization: `Org ${email}`, name: 'Admin', email, password: 'motdepasse', template, accept_terms: true },
   });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return { token: r.body.token, orgId: r.body.user.org_id };
@@ -225,4 +226,13 @@ test('webhook checkout.session.completed : rattache le client Stripe', async () 
 test('accessFor : facturation désactivée = accès illimité', () => {
   assert.equal(accessFor({}, { enabled: false }).state, 'unlimited');
   assert.equal(accessFor({ subscription_status: 'incomplete', trial_ends_at: '2999-01-01T00:00:00Z' }, { enabled: true }).state, 'trial');
+});
+
+test('suppression du compte : l\'abonnement Stripe est résilié', async () => {
+  const { token, orgId } = await signup('resilie@test.fr', 'restaurant');
+  const hook = await sendWebhook(subscriptionEvent('customer.subscription.created', { orgId, status: 'active', price: 'price_pro', customer: 'cus_resilie' }));
+  assert.equal(hook.status, 200);
+  const del = await call('/api/organization/delete', { token, method: 'POST', body: { password: 'motdepasse', confirm: 'Org resilie@test.fr' } });
+  assert.equal(del.status, 204);
+  assert.deepEqual(calls.cancel, ['sub_123']);
 });
