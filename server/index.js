@@ -6,7 +6,12 @@ const { checkConfig, report } = require('./config');
 // Vérifie la configuration avant tout : en production, on refuse de démarrer
 // avec un réglage critique manquant plutôt que de tourner dans un état dangereux.
 const config = checkConfig();
-report(config);
+if (process.env.NODE_ENV === 'production') {
+  report(config);
+} else {
+  // En test local, ces réglages ne servent qu'à la mise en ligne : un seul message, pas d'alarme.
+  console.log('Mode test local : e-mails, paiements et sauvegardes externes désactivés (normal sur un ordinateur).');
+}
 if (config.errors.length && process.env.NODE_ENV === 'production') {
   console.error('Démarrage annulé : corrigez la configuration (voir docs/DEPLOIEMENT.md).');
   process.exit(1);
@@ -31,6 +36,12 @@ app.locals.snapshotDir = snapshotDir;
 
 const server = app.listen(port, () => {
   console.log(`HACCP prêt sur http://localhost:${port}${snapshotDir ? ` (instantanés : ${snapshotDir})` : ''}`);
+  if (process.env.NODE_ENV !== 'production') {
+    // En test local : adresses à taper sur une tablette ou un téléphone du même réseau Wi-Fi.
+    const lan = Object.values(require('os').networkInterfaces()).flat()
+      .filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => `http://${i.address}:${port}`);
+    if (lan.length) console.log(`Depuis une tablette ou un téléphone sur le même Wi-Fi : ${lan.join('  ou  ')}`);
+  }
 });
 
 // Arrêt propre (mise à jour, redémarrage du conteneur) : on termine les

@@ -38,6 +38,10 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 - **Application installable (PWA)** sur tablette et smartphone, interface adaptée au tactile.
 - **Sécurité** : mots de passe hachés (bcrypt), sessions JWT, limitation des tentatives de connexion, en-têtes de sécurité.
 
+## Tester sur votre ordinateur, sans rien installer de compliqué
+
+Installez [Node.js](https://nodejs.org/fr) (version LTS), puis double-cliquez sur **`demarrer.bat`** (Windows) ou **`demarrer.command`** (Mac). Guide complet et scénarios de test : **[docs/TESTER-EN-LOCAL.md](docs/TESTER-EN-LOCAL.md)**.
+
 ## Démarrage rapide
 
 Prérequis : Node.js 20 ou plus récent.
