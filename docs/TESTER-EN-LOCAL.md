@@ -40,11 +40,11 @@ Tapez cette adresse dans le navigateur de la tablette, connectée **à la même 
 L'application s'organise en 4 onglets : **Aujourd'hui**, **Saisir**, **Alertes** et **Plus**.
 
 - [ ] **Page d'accueil** (http://localhost:3000) : lisez-la comme si vous étiez un restaurateur.
-- [ ] **Inscription** d'un nouvel établissement avec un modèle de métier (*Essai gratuit*) : les équipements et le plan de nettoyage sont-ils réalistes pour ce métier ? Le cadre « Premiers pas » en haut de *Aujourd'hui* est-il clair ?
-- [ ] **Aujourd'hui → températures** : tapez une valeur normale dans une carte (le message vert apparaît dès que vous tapez), puis une valeur hors limite (8 °C dans un frigo). L'assistant « Qu'avez-vous fait ? » s'ouvre-t-il ? Est-il compréhensible sans explication ?
+- [ ] **Inscription** d'un nouvel établissement avec un modèle de métier (*Essai gratuit*) : les équipements et le plan de nettoyage sont-ils réalistes pour ce métier ? Le cadre « Pour bien démarrer » sur *Aujourd'hui* est-il clair ?
+- [ ] **Aujourd'hui → températures** : tapez une valeur normale dans une carte (l'indication « conforme » apparaît dès que vous tapez), puis une valeur hors limite (8 °C dans un frigo). La fenêtre « Action corrective » s'ouvre-t-elle ? Est-il compréhensible sans explication ?
 - [ ] **Congélateur** : le signe « − » est-il déjà choisi ? Pensez-vous à le changer pour un frigo ?
-- [ ] **Journée complète** : une fois tous les relevés et nettoyages faits, la jauge se remplit et des confettis apparaissent. Trouvez-vous cela agréable, ou superflu ?
-- [ ] **Alertes** : réglez une alerte (« Problème réglé »), puis recommencez en choisissant « Action notée, à suivre » : l'alerte doit rester ouverte.
+- [ ] **Journée complète** : une fois tous les relevés et nettoyages faits, le bandeau du haut passe au vert et affiche une coche. Est-ce assez clair pour savoir qu'il n'y a plus rien à faire ?
+- [ ] **Alertes** : clôturez une alerte (« Clôturer l'alerte »), puis recommencez en choisissant « Noter l'action, alerte à suivre » : l'alerte doit rester ouverte.
 - [ ] **Saisir → Réception** avec une photo prise à la tablette ou au téléphone. Le bouton « Plus de détails » (lot, commentaire) est-il facile à trouver ?
 - [ ] **Saisir → Étiquette DLC** : touchez un produit fréquent, enregistrez et imprimez l'étiquette.
 - [ ] **Saisir → Refroidissement** : saisissez la durée en minutes (par exemple 90) et la température finale. Un refroidissement de 150 minutes doit être signalé non conforme.

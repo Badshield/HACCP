@@ -2,23 +2,22 @@
 // Principe : dire clairement quoi faire maintenant, un geste par tâche, un retour immédiat.
 
 import {
-  state, store, esc, can, api, toast, modal, refreshBadge, hooks, firstName, plural, fmtTemp, num, ago, longDate,
+  state, store, esc, can, api, toast, buzz, modal, refreshBadge, hooks, firstName, plural, fmtTemp, num, ago, longDate,
   fmtDT, tableHtml,
 } from './core.js';
-import { flash, confetti, buzz } from './fun.js';
+import { ico } from './icons.js';
 import { attachPhotoInput, bindGalleries, photoCell } from './photos.js';
 
-export const EQUIP_ICON = { fridge: '🧊', cold_room: '❄️', freezer: '🥶', display: '🍰', hot_holding: '♨️' };
+export const EQUIP_ICON = { fridge: 'kitchen', cold_room: 'ac_unit', freezer: 'severe_cold', display: 'storefront', hot_holding: 'heat' };
 const FREQ_SHORT = { daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois', after_use: 'Après usage' };
 const WEEKDAY = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 const WEEKDAY_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const DAY_STATE = {
   done: 'relevés complets', missed: 'relevés incomplets', off: 'aucun relevé (fermé ?)', none: '', today: 'aujourd\'hui', partial: 'aujourd\'hui, en cours',
 };
-const DAY_DOT = { done: '✓', missed: '!', off: '–', none: '', today: '', partial: '½' };
-const CHEERS = ['Bien joué !', 'Nickel !', 'Top !', 'Et un de plus !', 'Parfait !'];
-const cheerWord = () => CHEERS[Math.floor(Math.random() * CHEERS.length)];
+const DAY_ICON = { done: 'check', missed: 'priority_high', off: 'remove', partial: 'schedule' };
 const hhmm = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
 // ------------------------------------------------------------------ températures
 
@@ -55,17 +54,16 @@ const defaultNegative = (e) => num(e.max_temp) != null && num(e.max_temp) < 0; /
 export function tempCardHtml(e, draft = {}) {
   const neg = draft.neg ?? defaultNegative(e);
   const info = e.done
-    ? `<span class="chip ok">✓ ${fmtTemp(e.reading.value)} °C à ${hhmm(e.reading.at)}</span>`
-    : e.previous ? `dernier relevé : ${fmtTemp(e.previous.value)} °C` : 'premier relevé';
+    ? `<span class="chip-done">${ico('check')}${fmtTemp(e.reading.value)} °C à ${hhmm(e.reading.at)}</span>`
+    : esc(e.previous ? `Dernier relevé : ${fmtTemp(e.previous.value)} °C` : 'Premier relevé');
   return `<form class="task temp${e.done ? ' is-done' : ''}" data-eq="${e.id}">
-    <div class="task-head"><span class="ico">${EQUIP_ICON[e.type] || '🌡️'}</span>
-      <div><strong>${esc(e.name)}</strong><small>${esc(rangeText(e))} · ${info}</small></div></div>
+    <div class="task-head"><span class="ico-box">${ico(EQUIP_ICON[e.type] || 'thermostat')}</span>
+      <div><strong>${esc(e.name)}</strong><small>${esc(cap(rangeText(e)))}</small><small>${info}</small></div></div>
     <div class="temp-row">
       <button type="button" class="sign${neg ? ' on' : ''}" data-sign aria-pressed="${neg}" aria-label="Température négative (moins)">−</button>
-      <input class="temp-input" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,0"
-        aria-label="Température de ${esc(e.name)}" value="${esc(draft.text ?? '')}">
-      <span class="unit">°C</span>
-      <button type="submit" class="go">OK</button>
+      <div class="temp-field"><input class="temp-input" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,0"
+        aria-label="Température de ${esc(e.name)}" value="${esc(draft.text ?? '')}"><span class="unit">°C</span></div>
+      <button type="submit" class="go">Valider</button>
     </div>
     <p class="hint" aria-live="polite"></p>
   </form>`;
@@ -80,16 +78,20 @@ export function bindTempCards(root, getList, { drafts = {}, onSaved } = {}) {
   const negative = (form) => form.querySelector('[data-sign]').classList.contains('on');
   const reading = (form) => parseTemp(form.querySelector('.temp-input').value, negative(form));
 
-  const showHint = (form) => {
+  const say = (form, kind, icon, text) => {
     const out = form.querySelector('.hint');
+    out.className = kind ? `hint ${kind}` : 'hint';
+    out.innerHTML = text ? `${icon ? ico(icon, { fill: true }) : ''}<span>${esc(text)}</span>` : '';
+  };
+  const showHint = (form) => {
     const raw = form.querySelector('.temp-input').value.trim();
-    if (!raw) { out.className = 'hint'; out.textContent = ''; return; }
+    if (!raw) { say(form, '', '', ''); return; }
     const v = reading(form);
-    if (v == null) { out.className = 'hint'; out.textContent = 'Tapez seulement des chiffres, par exemple 3,5'; return; }
+    if (v == null) { say(form, '', '', 'Saisissez uniquement des chiffres, par exemple 3,5'); return; }
     const e = find(form);
     const j = judge(e, v);
-    out.className = `hint ${j.ok ? 'ok' : 'bad'}`;
-    out.textContent = j.ok ? `✓ ${fmtTemp(v)} °C : c'est bon` : `⚠ ${fmtTemp(v)} °C : ${j.why} (${rangeText(e)})`;
+    if (j.ok) say(form, 'ok', 'check_circle', `${fmtTemp(v)} °C : conforme`);
+    else say(form, 'bad', 'error', `${fmtTemp(v)} °C : ${j.why} (${rangeText(e)})`);
   };
   // Les brouillons survivent au redessin de la page (ex. on valide une carte pendant qu'on tape dans une autre) :
   // l'appelant invoque refresh() après chaque redessin pour réafficher les indications.
@@ -119,10 +121,8 @@ export function bindTempCards(root, getList, { drafts = {}, onSaved } = {}) {
     ev.preventDefault();
     const e = find(form);
     const v = reading(form);
-    const out = form.querySelector('.hint');
     if (v == null) {
-      out.className = 'hint bad';
-      out.textContent = 'Tapez la température affichée sur l\'appareil';
+      say(form, 'bad', 'error', 'Saisissez la température affichée sur l\'appareil');
       form.querySelector('.temp-input').focus();
       return;
     }
@@ -132,12 +132,12 @@ export function bindTempCards(root, getList, { drafts = {}, onSaved } = {}) {
       const row = await api('/temperatures', { method: 'POST', body: { equipment_id: e.id, value: v } });
       delete drafts[e.id];
       if (row.compliant) {
-        flash('ok', `${e.name} : ${fmtTemp(v)} °C`);
+        toast(`${e.name} : ${fmtTemp(v)} °C enregistré`);
       } else {
         buzz([60, 40, 60]);
         refreshBadge();
         if (row.non_conformity_id) {
-          await actionSheet({ id: row.non_conformity_id, title: `${e.name} : ${fmtTemp(v)} °C`, detail: `${judge(e, v).why} : la norme est ${rangeText(e)}`, kind: 'temp' });
+          await actionSheet({ id: row.non_conformity_id, title: `${e.name} : ${fmtTemp(v)} °C`, detail: `${cap(judge(e, v).why)} : la norme est ${rangeText(e)}`, kind: 'temp' });
         }
       }
       await onSaved?.(row, e, v);
@@ -161,23 +161,23 @@ const ACTIONS = {
 export const actionKind = (source) => ({ temperature_logs: 'temp', receptions: 'reception', process_logs: 'process' })[source] || 'other';
 
 /**
- * Feuille « Qu'avez-vous fait ? » : des choix en un toucher plutôt qu'un champ à remplir.
- * Deux issues : « Problème réglé » (clôture l'alerte) ou « Action notée, à suivre » (la garde ouverte).
+ * Feuille « Action corrective » : des choix en un toucher plutôt qu'un champ à remplir.
+ * Deux issues : « Clôturer l'alerte » ou « Noter l'action, alerte à suivre » (elle reste ouverte).
  * Renvoie une promesse résolue à la fermeture de la feuille.
  */
 export function actionSheet({ id, title, detail = '', action = '', kind = 'other' }) {
   return new Promise((resolve) => {
     const chips = ACTIONS[kind] || ACTIONS.other;
-    const dlg = modal('À traiter', `
-      <div class="sheet-alert"><span class="big-ico">⚠️</span><div><strong>${esc(title)}</strong>${detail ? `<p class="muted">${esc(detail)}</p>` : ''}</div></div>
+    const dlg = modal('Action corrective', `
+      <div class="sheet-alert">${ico('warning', { fill: true })}<div><strong>${esc(title)}</strong>${detail ? `<p>${esc(detail)}</p>` : ''}</div></div>
       ${action ? `<p class="noted">Déjà noté : <b>${esc(action)}</b></p>` : ''}
-      <p class="sheet-q">Qu'avez-vous fait ?</p>
+      <p class="sheet-q">Quelle action avez-vous menée ?</p>
       <div class="chips" data-chips>${chips.map((c) => `<button type="button" class="chip" aria-pressed="false">${esc(c)}</button>`).join('')}</div>
-      <label>Autre précision (facultatif)<input data-note maxlength="300" autocomplete="off"></label>
+      <label>Précision (facultatif)<input data-note maxlength="300" autocomplete="off"></label>
       <div class="sheet-actions">
-        <button type="button" class="big" data-solve>✅ Problème réglé</button>
-        <button type="button" class="secondary" data-follow>⏳ Action notée, à suivre</button>
-        <button type="button" class="link" data-later>Je m'en occupe plus tard</button>
+        <button type="button" class="big" data-solve>${ico('check')}Clôturer l'alerte</button>
+        <button type="button" class="secondary big" data-follow>Noter l'action, alerte à suivre</button>
+        <button type="button" class="link" data-later>Plus tard</button>
       </div>`);
     dlg.dataset.sheet = '1';
     dlg.addEventListener('close', () => resolve());
@@ -196,18 +196,18 @@ export function actionSheet({ id, title, detail = '', action = '', kind = 'other
     };
     dlg.querySelector('[data-solve]').onclick = () => {
       const text = typed() || action;
-      if (!text) { toast('Choisissez ce que vous avez fait', true); return; }
+      if (!text) { toast('Indiquez l\'action menée', true); return; }
       run(async () => {
         await api(`/non-conformities/${id}/close`, { method: 'POST', body: { corrective_action: text } });
-        flash('ok', 'Alerte réglée');
+        toast('Alerte clôturée');
       });
     };
     dlg.querySelector('[data-follow]').onclick = () => {
       const text = typed();
-      if (!text) { toast('Choisissez ce que vous avez fait', true); return; }
+      if (!text) { toast('Indiquez l\'action menée', true); return; }
       run(async () => {
         await api(`/non-conformities/${id}/action`, { method: 'PUT', body: { corrective_action: text } });
-        toast('Action notée ✓ L\'alerte reste ouverte');
+        toast('Action enregistrée : l\'alerte reste ouverte');
       });
     };
     dlg.querySelector('[data-later]').onclick = () => dlg.close();
@@ -219,7 +219,7 @@ export function reportProblem(onDone) {
   const dlg = modal('Signaler un problème', `<form class="form">
     <label class="full">Que se passe-t-il ?
       <textarea name="description" required maxlength="500" placeholder="Ex. Emballage percé sur la livraison de poulet"></textarea></label>
-    <div class="submit"><button type="submit" class="big">🚨 Signaler</button></div></form>`);
+    <div class="submit"><button type="submit" class="big">Envoyer le signalement</button></div></form>`);
   const form = dlg.querySelector('form');
   const sendPhotos = attachPhotoInput(form);
   form.addEventListener('submit', async (ev) => {
@@ -230,7 +230,7 @@ export function reportProblem(onDone) {
       const nc = await api('/non-conformities', { method: 'POST', body: { description: form.elements.description.value } });
       await sendPhotos('non_conformities', nc.id);
       dlg.close();
-      flash('ok', 'Problème signalé');
+      toast('Problème signalé');
       refreshBadge();
       onDone?.(nc);
     } catch (err) {
@@ -247,45 +247,45 @@ const greet = () => { const h = new Date().getHours(); return h >= 18 || h < 5 ?
 function ringHtml(done, total) {
   const r = 52;
   const c = 2 * Math.PI * r;
-  return `<div class="ring${total && done === total ? ' full' : ''}" role="img" aria-label="${done} tâche${done > 1 ? 's' : ''} faite${done > 1 ? 's' : ''} sur ${total}">
+  const complete = total && done === total;
+  return `<div class="ring" role="img" aria-label="${done} tâche${done > 1 ? 's' : ''} terminée${done > 1 ? 's' : ''} sur ${total}">
     <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="${r}"/>
       <circle class="bar" cx="60" cy="60" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${c}" data-circ="${c}"/></svg>
-    <div class="ring-num"><b>${done}</b><span>sur ${total}</span></div></div>`;
+    <div class="ring-num">${complete ? ico('check') : `<b>${done}</b><span>sur ${total}</span>`}</div></div>`;
 }
 
-function cheerText(d) {
+function statusText(d) {
   const { done, total } = d.progress;
   const left = total - done;
-  if (!total) return can('manager') ? 'Ajoutez vos équipements pour démarrer.' : 'Rien à faire pour l\'instant.';
+  if (!total) return can('manager') ? 'Ajoutez vos équipements pour démarrer.' : 'Aucune tâche prévue pour le moment.';
   if (left <= 0) {
-    return d.alerts.count ? `Tout est fait. Reste à régler ${plural(d.alerts.count, 'alerte', 'alertes')}.` : 'Journée complète : bravo ! 🎉';
+    return d.alerts.count ? `Tâches terminées. ${plural(d.alerts.count, 'alerte à traiter', 'alertes à traiter')}.` : 'Toutes les tâches du jour sont terminées.';
   }
-  if (done === 0) return 'C\'est parti ! Commencez par les relevés.';
-  if (left === 1) return 'Dernière ligne droite : plus qu\'une tâche !';
-  if (left <= 3) return `Plus que ${left} tâches, vous y êtes presque !`;
-  if (done < left) return `${left} tâches à faire aujourd'hui : un pas après l'autre.`;
-  return `Plus que ${left} tâches : vous avancez bien !`;
-}
-
-function streakHtml(n) {
-  const text = n >= 30 ? `🏆 ${n} jours de suite !` : n >= 7 ? `🏅 ${n} jours de suite !` : n >= 2 ? `🔥 ${n} jours de suite`
-    : n === 1 ? '🔥 Série lancée !' : '🌱 Relevez tous vos équipements pour lancer une série';
-  return `<div class="streak${n >= 2 ? ' hot' : ''}">${text}</div>`;
+  return `${plural(left, 'tâche restante', 'tâches restantes')} aujourd'hui.`;
 }
 
 function weekHtml(week) {
-  return `<ol class="week" aria-label="Votre semaine">${week.map((w) => {
+  return `<ol class="week" aria-label="Les sept derniers jours">${week.map((w) => {
     const dow = new Date(`${w.day}T12:00:00Z`).getUTCDay();
-    return `<li class="day ${w.state}" aria-label="${WEEKDAY_LONG[dow]} : ${DAY_STATE[w.state]}"><span class="dot">${DAY_DOT[w.state]}</span><small>${WEEKDAY[dow]}</small></li>`;
+    return `<li class="day ${w.state}" aria-label="${WEEKDAY_LONG[dow]} : ${DAY_STATE[w.state]}"><span class="dot">${ico(DAY_ICON[w.state] || '')}</span><small>${WEEKDAY[dow]}</small></li>`;
   }).join('')}</ol>`;
+}
+
+/** Suivi de la régularité : masqué tant qu'il n'y a aucun historique à montrer. */
+function weekCardHtml(d) {
+  const n = d.streak;
+  if (!n && d.week.every((w) => w.state === 'none' || w.state === 'today')) return '';
+  const title = n >= 2 ? `${n} jours consécutifs` : 'Cette semaine';
+  const sub = n >= 2 ? 'Tous les équipements relevés chaque jour' : n === 1 ? 'Première journée complète' : 'Relevés des sept derniers jours';
+  return `<section class="week-card"><div class="week-head">${ico('event_available')}<div><strong>${title}</strong><small>${sub}</small></div></div>${weekHtml(d.week)}</section>`;
 }
 
 export function cleanCardHtml(t) {
   const how = [t.product ? `<p><b>Produit :</b> ${esc(t.product)}</p>` : '', t.method ? `<p>${esc(t.method)}</p>` : ''].join('');
   return `<article class="task clean" data-task="${t.id}">
-    <div class="task-head"><span class="ico">🧽</span><div><strong>${esc(t.name)}</strong><small>${esc(t.zone)} · ${FREQ_SHORT[t.frequency]}</small></div></div>
+    <div class="task-head"><span class="ico-box">${ico('cleaning_services')}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.zone)} · ${FREQ_SHORT[t.frequency]}</small></div></div>
     ${how ? `<details class="how"><summary>Comment faire ?</summary>${how}</details>` : ''}
-    <button type="button" class="go wide" data-clean="${t.id}">✓ C'est fait</button></article>`;
+    <button type="button" class="go wide" data-clean="${t.id}">${ico('check')}Marquer comme fait</button></article>`;
 }
 
 function firstStepsHtml(d) {
@@ -299,14 +299,14 @@ function firstStepsHtml(d) {
   ];
   const n = steps.filter((s) => s.ok).length;
   if (n === steps.length) return '';
-  return `<section class="block first-steps"><h2>🚀 Premiers pas <small>${n}/${steps.length}</small></h2>
-    <ul>${steps.map((s) => `<li class="${s.ok ? 'ok' : ''}">${s.ok ? '✅' : '⬜'} ${s.href && !s.ok ? `<a href="${s.href}">${esc(s.text)}</a>` : esc(s.text)}</li>`).join('')}</ul>
+  return `<section class="block first-steps"><h2>Pour bien démarrer <small>${n}/${steps.length}</small></h2>
+    <ul>${steps.map((s) => `<li class="${s.ok ? 'ok' : ''}">${ico(s.ok ? 'task_alt' : 'radio_button_unchecked', { fill: s.ok })}${s.href && !s.ok ? `<a href="${s.href}">${esc(s.text)}</a>` : esc(s.text)}</li>`).join('')}</ul>
     <button type="button" class="link" data-hide-first>Masquer</button></section>`;
 }
 
 export async function todayPage(main) {
   const wrap = document.createElement('div');
-  wrap.className = 'today';
+  wrap.className = 'today-page';
   main.replaceChildren(wrap);
   const drafts = {};
   let data = null;
@@ -315,6 +315,7 @@ export async function todayPage(main) {
   const render = () => {
     const d = data;
     const { done, total } = d.progress;
+    const complete = total > 0 && done === total;
     const pending = d.temperatures.filter((t) => !t.done);
     const doneTemps = d.temperatures.filter((t) => t.done);
     const dueClean = d.cleaning.filter((t) => t.due);
@@ -322,30 +323,35 @@ export async function todayPage(main) {
     const nDone = doneTemps.length + doneClean.length;
 
     const alertCard = d.alerts.count
-      ? `<a class="alert-card" href="#/nonconformities"><span class="big-ico">⚠️</span>
-          <div><strong>${plural(d.alerts.count, 'alerte à régler', 'alertes à régler')}</strong><p>${esc(d.alerts.items[0].description)}</p></div><span class="chev">›</span></a>` : '';
-    const tempBlock = d.temperatures.length ? `<section class="block"><h2><span>🌡️ Relevés de température</span><small>${doneTemps.length}/${d.temperatures.length}</small></h2>
-        ${pending.length ? pending.map((t) => tempCardHtml(t, drafts[t.id])).join('') : '<p class="all-done">✅ Tous les relevés sont faits</p>'}</section>` : '';
-    const cleanBlock = dueClean.length || doneClean.length ? `<section class="block"><h2><span>🧽 Nettoyage</span><small>${doneClean.length}/${doneClean.length + dueClean.length}</small></h2>
-        ${dueClean.length ? dueClean.map(cleanCardHtml).join('') : '<p class="all-done">✅ Tout est nettoyé</p>'}</section>` : '';
-    const doneBlock = nDone ? `<details class="block done-list"><summary>✅ Déjà fait aujourd'hui (${nDone})</summary><ul>
-        ${doneTemps.map((t) => `<li>${esc(t.name)} <span>${fmtTemp(t.reading.value)} °C${t.reading.compliant ? '' : ' ⚠'} · ${hhmm(t.reading.at)}</span></li>`).join('')}
+      ? `<a class="alert-card" href="#/nonconformities">${ico('warning', { fill: true })}
+          <div><strong>${plural(d.alerts.count, 'alerte à traiter', 'alertes à traiter')}</strong><p>${esc(d.alerts.items[0].description)}</p></div>${ico('chevron_right')}</a>` : '';
+    const allDone = (text) => `<p class="all-done">${ico('check_circle', { fill: true })}${text}</p>`;
+    const tempBlock = d.temperatures.length ? `<section class="block"><h2><span>Relevés de température</span><small>${doneTemps.length}/${d.temperatures.length}</small></h2>
+        ${pending.length ? pending.map((t) => tempCardHtml(t, drafts[t.id])).join('') : allDone('Tous les relevés sont effectués')}</section>` : '';
+    const cleanBlock = dueClean.length || doneClean.length ? `<section class="block"><h2><span>Nettoyage</span><small>${doneClean.length}/${doneClean.length + dueClean.length}</small></h2>
+        ${dueClean.length ? dueClean.map(cleanCardHtml).join('') : allDone('Tout est nettoyé')}</section>` : '';
+    const doneBlock = nDone ? `<details class="block done-list"><summary>${ico('task_alt')}Effectué aujourd'hui (${nDone})</summary><ul>
+        ${doneTemps.map((t) => `<li>${esc(t.name)} <span>${fmtTemp(t.reading.value)} °C${t.reading.compliant ? '' : ' (hors norme)'} · ${hhmm(t.reading.at)}</span></li>`).join('')}
         ${doneClean.map((t) => `<li>${esc(t.name)} <span>${hhmm(t.done_at)}</span></li>`).join('')}</ul></details>` : '';
-    const labelBlock = d.labels.length ? `<section class="block"><h2>🏷️ À surveiller</h2><ul class="watch">${d.labels.map((l) =>
+    const labelBlock = d.labels.length ? `<section class="block"><h2>Dates limites à surveiller</h2><ul class="watch">${d.labels.map((l) =>
       `<li><span><b>${esc(l.product)}</b>${l.lot_number ? ` <small>lot ${esc(l.lot_number)}</small>` : ''}</span>
         <span class="pill ${l.when === 'today' ? 'bad' : 'warn'}">DLC ${l.when === 'today' ? 'aujourd\'hui' : 'demain'}</span></li>`).join('')}</ul></section>` : '';
-    const empty = !total && !d.alerts.count ? `<div class="empty"><div class="big-emoji">🍽️</div><h2>Rien à faire pour l'instant</h2>
-        <p>${can('manager') ? 'Ajoutez vos équipements et votre plan de nettoyage pour voir vos tâches du jour.' : 'Profitez-en !'}</p>
+    const empty = !total && !d.alerts.count ? `<div class="empty"><span class="empty-ico">${ico('task_alt')}</span><h2>Rien à faire pour l'instant</h2>
+        <p>${can('manager') ? 'Ajoutez vos équipements et votre plan de nettoyage pour voir vos tâches du jour.' : 'Aucune tâche n\'est prévue aujourd\'hui.'}</p>
         ${can('manager') ? '<a class="btn" href="#/equipment">Ajouter mes équipements</a>' : ''}</div>` : '';
 
     wrap.innerHTML = `
-      <section class="hero">
-        <div class="hero-text"><p class="date">${esc(longDate())}</p><h1>${greet()} ${esc(firstName(state.user?.name))} 👋</h1><p class="cheer">${esc(cheerText(d))}</p></div>
-        ${total ? ringHtml(done, total) : ''}
-      </section>
-      <div class="streak-row">${streakHtml(d.streak)}${weekHtml(d.week)}</div>
-      ${alertCard}${tempBlock}${cleanBlock}${empty}${firstStepsHtml(d)}${doneBlock}${labelBlock}
-      <a class="btn secondary wide" href="#/saisir">➕ Saisir autre chose : réception, étiquette…</a>`;
+      <div class="today-side">
+        <section class="hero${complete ? ' complete' : ''}">
+          <div class="hero-text"><p class="date">${esc(longDate())}</p><h1>${greet()} ${esc(firstName(state.user?.name))}</h1><p class="status">${esc(statusText(d))}</p></div>
+          ${total ? ringHtml(done, total) : ''}
+        </section>
+        ${weekCardHtml(d)}${alertCard}
+      </div>
+      <div class="today-main">
+        ${tempBlock}${cleanBlock}${empty}${firstStepsHtml(d)}${doneBlock}${labelBlock}
+        <a class="btn secondary wide" href="#/saisir">${ico('add')}Autre saisie : réception, étiquette…</a>
+      </div>`;
 
     // La jauge se remplit en douceur depuis sa valeur précédente.
     const bar = wrap.querySelector('.ring .bar');
@@ -359,27 +365,24 @@ export async function todayPage(main) {
     temps.refresh();
   };
 
-  const load = async ({ celebrate = false } = {}) => {
+  const load = async ({ announce = false } = {}) => {
     const before = data?.progress;
     data = await api('/today');
     render();
     refreshBadge();
     const complete = data.progress.total > 0 && data.progress.done === data.progress.total;
-    if (celebrate && before && before.done < before.total && complete) {
-      confetti();
-      flash('ok', 'Journée complète !');
-    }
+    if (announce && before && before.done < before.total && complete) toast('Toutes les tâches du jour sont terminées');
   };
 
-  const temps = bindTempCards(wrap, () => data?.temperatures || [], { drafts, onSaved: () => load({ celebrate: true }) });
+  const temps = bindTempCards(wrap, () => data?.temperatures || [], { drafts, onSaved: () => load({ announce: true }) });
   wrap.addEventListener('click', async (ev) => {
     const clean = ev.target.closest('[data-clean]');
     if (clean) {
       clean.disabled = true;
       try {
         await api('/cleaning-logs', { method: 'POST', body: { task_id: Number(clean.dataset.clean) } });
-        flash('ok', cheerWord());
-        await load({ celebrate: true });
+        toast('Nettoyage enregistré');
+        await load({ announce: true });
       } catch (err) {
         toast(err.message, true);
         clean.disabled = false;
@@ -399,28 +402,40 @@ export async function todayPage(main) {
   await load();
 }
 
+// ------------------------------------------------------------------ listes de choix (Saisir, Plus)
+
+/** Une ligne de liste : pictogramme, titre, précision, flèche. `alarm` pour une action d'urgence. */
+function segItem(t) {
+  const inner = `<span class="seg-lead">${ico(t.icon)}</span><span class="seg-text"><strong>${esc(t.title)}</strong>${t.sub ? `<small>${esc(t.sub)}</small>` : ''}</span>${t.action === 'logout' ? '' : ico('chevron_right')}`;
+  const cls = `seg-item${t.alarm ? ' alarm' : ''}`;
+  return t.href ? `<a class="${cls}" href="${t.href}">${inner}</a>` : `<button type="button" class="${cls}" data-action="${t.action}">${inner}</button>`;
+}
+const groupHtml = (g) => `<h2 class="group-title">${esc(g.title)}</h2><div class="seg">${g.items.map(segItem).join('')}</div>`;
+
 // ------------------------------------------------------------------ Saisir
 
-const TILES = [
-  { href: '#/temperatures', icon: '🌡️', title: 'Température', sub: 'Frigos, congélateurs', tone: 'sky' },
-  { href: '#/cleaning', icon: '🧽', title: 'Nettoyage', sub: 'Cocher les tâches', tone: 'mint' },
-  { href: '#/receptions', icon: '📦', title: 'Réception', sub: 'Contrôler une livraison', tone: 'sun' },
-  { href: '#/cooling', icon: '❄️', title: 'Refroidissement', sub: 'Après la cuisson', tone: 'ice' },
-  { href: '#/reheating', icon: '♨️', title: 'Remise en température', sub: 'Avant le service', tone: 'rose' },
-  { href: '#/oil', icon: '🍟', title: 'Huile de friture', sub: 'Contrôler le bain', tone: 'peach' },
-  { href: '#/labels', icon: '🏷️', title: 'Étiquette DLC', sub: 'Calculer et imprimer', tone: 'violet' },
-  { href: '#/pests', icon: '🐭', title: 'Nuisibles', sub: 'Contrôle ou passage', tone: 'slate' },
-  { action: 'report', icon: '🚨', title: 'Signaler un problème', sub: 'Avec une photo', tone: 'alarm' },
+const CAPTURE = [
+  { title: 'Chaque jour', items: [
+    { href: '#/temperatures', icon: 'thermostat', title: 'Température', sub: 'Frigos, congélateurs, maintien au chaud' },
+    { href: '#/cleaning', icon: 'cleaning_services', title: 'Nettoyage', sub: 'Cocher les tâches effectuées' },
+  ] },
+  { title: 'Réception et production', items: [
+    { href: '#/receptions', icon: 'inventory_2', title: 'Réception', sub: 'Contrôler une livraison' },
+    { href: '#/cooling', icon: 'ac_unit', title: 'Refroidissement', sub: 'Après la cuisson' },
+    { href: '#/reheating', icon: 'heat', title: 'Remise en température', sub: 'Avant le service' },
+    { href: '#/oil', icon: 'oil_barrel', title: 'Huile de friture', sub: 'Contrôler le bain' },
+    { href: '#/labels', icon: 'label', title: 'Étiquette DLC', sub: 'Calculer et imprimer' },
+  ] },
+  { title: 'Autres contrôles', items: [
+    { href: '#/pests', icon: 'pest_control', title: 'Nuisibles', sub: 'Contrôle ou passage du prestataire' },
+  ] },
+  { title: 'Anomalie', items: [
+    { action: 'report', icon: 'report', title: 'Signaler un problème', sub: 'Avec une photo si possible', alarm: true },
+  ] },
 ];
 
-function tileHtml(t) {
-  const inner = `<span class="tile-ico" aria-hidden="true">${t.icon}</span><strong>${esc(t.title)}</strong><small>${esc(t.sub)}</small>`;
-  return t.href ? `<a class="tile t-${t.tone}" href="${t.href}">${inner}</a>`
-    : `<button type="button" class="tile t-${t.tone}" data-action="${t.action}">${inner}</button>`;
-}
-
 export function capturePage(main) {
-  main.innerHTML = `<h1>Que voulez-vous noter ?</h1><div class="tiles">${TILES.map(tileHtml).join('')}</div>`;
+  main.innerHTML = `<h1>Nouvelle saisie</h1>${CAPTURE.map(groupHtml).join('')}`;
   main.querySelector('[data-action=report]').addEventListener('click', () => reportProblem());
 }
 
@@ -429,20 +444,20 @@ export function capturePage(main) {
 export async function alertsPage(main) {
   const render = async () => {
     const open = await api('/non-conformities?status=open');
-    main.innerHTML = `<h1>🔔 Alertes</h1>
-      <p class="lead">Ce qui sort de la norme apparaît ici. Notez ce que vous avez fait pour régler chaque problème.</p>
-      <button type="button" class="big wide soft-bad" data-report>🚨 Signaler un problème</button>
+    main.innerHTML = `<h1>Alertes</h1>
+      <p class="lead">Ce qui sort de la norme apparaît ici. Notez l'action menée pour chaque problème.</p>
+      <div class="actions-top"><button type="button" class="big soft-bad" data-report>${ico('report')}Signaler un problème</button></div>
       <div data-open>${open.length ? open.map((nc) => `<article class="alert-item" data-nc="${nc.id}">
-          <div class="alert-top"><span class="big-ico">⚠️</span><div><strong>${esc(nc.description)}</strong>
+          <div class="alert-top"><span class="ico-box">${ico('warning', { fill: true })}</span><div><strong>${esc(nc.description)}</strong>
             <small>${esc(ago(nc.created_at))}${nc.created_by_name ? ` · ${esc(nc.created_by_name)}` : ''}</small></div></div>
           ${nc.corrective_action ? `<p class="noted">Action notée : <b>${esc(nc.corrective_action)}</b></p>` : ''}
           <div class="alert-actions">
-            <button type="button" class="big" data-solve>✅ ${nc.corrective_action ? 'Problème réglé' : 'J\'ai réglé le problème'}</button>
-            <button type="button" class="secondary" data-act>✏️ ${nc.corrective_action ? 'Modifier l\'action' : 'Noter une action'}</button>
-            <button type="button" class="secondary" data-gallery="non_conformities:${nc.id}">📷 ${nc.photo_count || '+'}</button>
+            <button type="button" class="big" data-solve>${ico('check')}Marquer comme réglée</button>
+            <button type="button" class="secondary" data-act>${ico('edit')}${nc.corrective_action ? 'Modifier l\'action' : 'Noter une action'}</button>
+            <button type="button" class="secondary" data-gallery="non_conformities:${nc.id}" aria-label="Photos">${ico('photo_camera')}${nc.photo_count || 'Photo'}</button>
           </div></article>`).join('')
-        : '<div class="empty"><div class="big-emoji">🎉</div><h2>Aucune alerte</h2><p>Tout va bien. Continuez comme ça !</p></div>'}</div>
-      <details class="block closed-list"><summary>📜 Alertes déjà réglées</summary><div data-closed><p class="muted">Chargement…</p></div></details>`;
+        : `<div class="empty"><span class="empty-ico">${ico('task_alt')}</span><h2>Aucune alerte en cours</h2><p>Tout est conforme pour le moment.</p></div>`}</div>
+      <details class="block closed-list"><summary>${ico('history')}Alertes clôturées</summary><div data-closed><p class="muted">Chargement…</p></div></details>`;
 
     main.querySelector('[data-report]').onclick = () => reportProblem(render);
     bindGalleries(main.querySelector('[data-open]'), render);
@@ -454,7 +469,7 @@ export async function alertsPage(main) {
         if (!nc.corrective_action) return sheet();
         try {
           await api(`/non-conformities/${nc.id}/close`, { method: 'POST', body: {} });
-          flash('ok', 'Alerte réglée');
+          toast('Alerte clôturée');
           refreshBadge();
           render();
         } catch (err) { toast(err.message, true); }
@@ -470,7 +485,7 @@ export async function alertsPage(main) {
         { label: 'Date', get: (r) => fmtDT(r.created_at) },
         { label: 'Problème', get: (r) => r.description },
         { label: 'Action', get: (r) => r.corrective_action },
-        { label: 'Réglée', get: (r) => `${fmtDT(r.closed_at)}${r.closed_by_name ? ` · ${r.closed_by_name}` : ''}` },
+        { label: 'Clôturée', get: (r) => `${fmtDT(r.closed_at)}${r.closed_by_name ? ` · ${r.closed_by_name}` : ''}` },
         photoCell('non_conformities'),
       ], rows);
       bindGalleries(closedBox);
@@ -483,22 +498,22 @@ export async function alertsPage(main) {
 
 const MORE = [
   { title: 'Au service', items: [
-    { href: '#/allergens', icon: '🥜', title: 'Allergènes', sub: 'Qui contient quoi ?', tone: 'sun' },
+    { href: '#/allergens', icon: 'no_food', title: 'Allergènes', sub: 'Quels plats contiennent quoi' },
   ] },
   { title: 'Gérer mon établissement', role: 'manager', items: [
-    { href: '#/reports', icon: '📄', title: 'Préparer un contrôle', sub: 'Classeur HACCP en PDF', tone: 'mint' },
-    { href: '#/dashboard', icon: '📊', title: 'Statistiques', sub: 'Conformité sur 30 jours', tone: 'sky' },
-    { href: '#/equipment', icon: '🧊', title: 'Équipements', sub: 'Frigos et températures', tone: 'ice' },
-    { href: '#/cleaning-tasks', icon: '📋', title: 'Plan de nettoyage', sub: 'Tâches et fréquences', tone: 'violet' },
-    { href: '#/suppliers', icon: '🚚', title: 'Fournisseurs', sub: 'Carnet d\'adresses', tone: 'peach' },
-    { href: '#/shelf-lives', icon: '⏳', title: 'Durées de vie', sub: 'DLC des préparations', tone: 'rose' },
-    { href: '#/trainings', icon: '🎓', title: 'Formations', sub: 'Suivi de l\'équipe', tone: 'slate' },
+    { href: '#/reports', icon: 'fact_check', title: 'Préparer un contrôle', sub: 'Classeur HACCP en PDF' },
+    { href: '#/dashboard', icon: 'monitoring', title: 'Statistiques', sub: 'Conformité sur 30 jours' },
+    { href: '#/equipment', icon: 'kitchen', title: 'Équipements', sub: 'Frigos, congélateurs et seuils' },
+    { href: '#/cleaning-tasks', icon: 'checklist', title: 'Plan de nettoyage', sub: 'Tâches et fréquences' },
+    { href: '#/suppliers', icon: 'local_shipping', title: 'Fournisseurs', sub: 'Carnet d\'adresses' },
+    { href: '#/shelf-lives', icon: 'hourglass_top', title: 'Durées de vie', sub: 'DLC des préparations' },
+    { href: '#/trainings', icon: 'school', title: 'Formations', sub: 'Suivi de l\'équipe' },
   ] },
   { title: 'Mon compte', items: [
-    { href: '#/settings', icon: '⚙️', title: 'Paramètres', sub: 'Équipe, rappels, tablette', tone: 'slate', role: 'manager' },
-    { href: '#/settings', icon: '🔢', title: 'Mon code PIN', sub: 'Et mot de passe', tone: 'slate', notRole: 'manager' },
-    { href: '#/billing', icon: '💳', title: 'Abonnement', sub: 'Offre et factures', tone: 'sun', role: 'admin' },
-    { action: 'logout', icon: '🚪', title: 'Se déconnecter', sub: '', tone: 'alarm' },
+    { href: '#/settings', icon: 'settings', title: 'Paramètres', sub: 'Équipe, rappels, tablette', role: 'manager' },
+    { href: '#/settings', icon: 'pin', title: 'Mon code PIN', sub: 'Et mot de passe', notRole: 'manager' },
+    { href: '#/billing', icon: 'credit_card', title: 'Abonnement', sub: 'Offre et factures', role: 'admin' },
+    { action: 'logout', icon: 'logout', title: 'Se déconnecter', sub: '' },
   ] },
 ];
 
@@ -507,10 +522,9 @@ export function morePage(main) {
   const sections = MORE.filter((s) => !s.role || can(s.role)).map((s) => ({
     ...s,
     items: s.items.filter((i) => (!i.role || can(i.role)) && (!i.notRole || !can(i.notRole))).map((i) => (
-      i.action === 'logout' && kiosk ? { ...i, icon: '🔄', title: 'Changer d\'utilisateur' } : i)),
+      i.action === 'logout' && kiosk ? { ...i, icon: 'swap_horiz', title: 'Changer d\'utilisateur' } : i)),
   })).filter((s) => s.items.length);
-  main.innerHTML = `<h1>Plus</h1>${sections.map((s) => `<section class="block"><h2>${esc(s.title)}</h2>
-      <div class="tiles small">${s.items.map(tileHtml).join('')}</div></section>`).join('')}
+  main.innerHTML = `<h1>Plus</h1>${sections.map(groupHtml).join('')}
     <p class="legal-links"><a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a> · <a href="/legal/mentions" target="_blank">Mentions légales</a></p>`;
   main.querySelector('[data-action=logout]')?.addEventListener('click', () => hooks.logout());
 }

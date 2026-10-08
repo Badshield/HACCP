@@ -28,16 +28,18 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 🔑 **Mot de passe oublié** | Lien sécurisé à usage unique, déconnexion des autres sessions. |
 | 🔢 **Tablette de cuisine** | Chaque employé touche son nom et tape son code PIN : saisies signées par la bonne personne, sans e-mail ni mot de passe partagé. Droits limités, déconnexion après 3 min d'inactivité, blocage après 5 erreurs. |
 | 🌐 **Page d'accueil commerciale** | Présentation, tarifs (synchronisés avec la facturation), FAQ, formulaire de demande de démo envoyé par e-mail. |
-| 🏠 **Page « Aujourd'hui »** | Ce qu'il reste à faire aujourd'hui, avec une jauge de progression, la série de jours réussis et la semaine en un coup d'œil. Un écran unique pour l'équipe, sans menu à fouiller. |
+| 🏠 **Page « Aujourd'hui »** | Ce qu'il reste à faire aujourd'hui, avec une jauge de progression, le nombre de jours consécutifs sans oubli et la semaine en un coup d'œil. Un écran unique pour l'équipe, sans menu à fouiller. |
 | 📊 **Statistiques** | Taux de conformité sur 30 jours, non-conformités, activité (pour le responsable). |
 
-### Une interface pensée pour les mains pleines
+### Une interface sobre, pensée pour les mains pleines
 
-- **4 onglets seulement** : *Aujourd'hui* (la liste du jour), *Saisir* (réception, étiquette, refroidissement… en grosses tuiles), *Alertes*, *Plus* (le reste : équipements, statistiques, paramètres).
-- **Un geste par tâche** : relevé de température = taper la valeur + OK ; nettoyage = « C'est fait ».
-- **Retour immédiat** : ✓ vert quand c'est conforme, message d'aide et assistant d'action corrective quand ça ne l'est pas, confettis quand la journée est complète (désactivés si l'appareil demande « réduire les animations »).
+Le langage visuel suit Material 3 (Google) : surfaces tonales, formes arrondies cohérentes, icônes Material Symbols, police Roboto Flex, aucun emoji ni effet de jeu. Tout est embarqué dans l'application (aucune ressource chargée depuis un autre site).
+
+- **4 onglets seulement** : *Aujourd'hui* (la liste du jour), *Saisir* (réception, étiquette, refroidissement… en listes à toucher), *Alertes*, *Plus* (le reste : équipements, statistiques, paramètres).
+- **Un geste par tâche** : relevé de température = saisir la valeur + « Valider » ; nettoyage = « Marquer comme fait ».
+- **Retour immédiat et factuel** : indication « conforme » ou « trop chaud (entre 0 et 4 °C) » pendant la frappe, message de confirmation discret en bas d'écran, assistant d'action corrective quand une valeur sort de la norme.
 - **Les formulaires ne demandent que l'essentiel** ; lot, commentaire et autres précisions sont sous « Plus de détails ». Aucun champ qui influe sur la conformité n'est prérempli à l'insu de l'utilisateur.
-- **Gros boutons, tactile d'abord**, barre d'onglets en bas sur téléphone et tablette, menu latéral sur ordinateur.
+- **Gros boutons, tactile d'abord** : barre de navigation en bas sur téléphone, barre latérale sur tablette et ordinateur, deux colonnes pour « Aujourd'hui » sur grand écran.
 
 ### Points forts pour un usage professionnel
 
@@ -115,10 +117,11 @@ deploy/         installation du serveur, Caddy (HTTPS), sauvegardes restic, mise
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)
-  core.js       outils partagés : appels API, formulaires, formats, fenêtres
+  core.js       outils partagés : appels API, formulaires, formats, fenêtres, messages de confirmation
+  icons.js      icônes Material Symbols (tracés SVG embarqués, licence Apache 2.0)
+  fonts/        police Roboto Flex (licence SIL OFL), servie par l'application elle-même
   home.js       page « Aujourd'hui », « Saisir », « Alertes », « Plus » et assistant d'action corrective
   photos.js     prise de photo, compression, galerie
-  fun.js        retours visuels : coche, confettis, vibration
   app.js        routage, authentification, pages des registres
 test/           tests automatisés (node:test)
 docs/           feuille de route produit et commerciale

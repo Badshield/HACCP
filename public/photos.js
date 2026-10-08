@@ -1,9 +1,10 @@
 import { state, esc, fmtDT, api, toast, modal } from './core.js';
+import { ico } from './icons.js';
 
 // ---------------------------------------------------------------- photos
 
 const PHOTO_INPUT = `<div class="full photo-pick">
-  <label class="photo-btn"><span aria-hidden="true">📷</span> <span data-photo-label>Ajouter une photo</span>
+  <label class="photo-btn">${ico('add_a_photo')}<span data-photo-label>Ajouter une photo</span>
     <input type="file" accept="image/*" capture="environment" multiple hidden data-photos></label>
   <div class="thumbs" data-thumbs></div></div>`;
 
@@ -51,7 +52,7 @@ export function attachPhotoInput(form) {
       thumbs.append(img);
     }
     const n = input.files.length;
-    label.textContent = n ? `${n} photo${n > 1 ? 's' : ''} prête${n > 1 ? 's' : ''} ✓` : 'Ajouter une photo';
+    label.textContent = n ? `${n} photo${n > 1 ? 's' : ''} prête${n > 1 ? 's' : ''}` : 'Ajouter une photo';
   });
   return async (entity, id) => {
     if (!input.files.length) return 0;
@@ -61,7 +62,7 @@ export function attachPhotoInput(form) {
 
 export const photoCell = (entity) => ({
   label: 'Photos',
-  html: (r) => `<button type="button" class="secondary small" data-gallery="${entity}:${r.id}">📷 ${r.photo_count ? r.photo_count : '+'}</button>`,
+  html: (r) => `<button type="button" class="secondary small" data-gallery="${entity}:${r.id}" aria-label="Photos">${ico('photo_camera')}${r.photo_count || 'Ajouter'}</button>`,
 });
 
 export function bindGalleries(root, onChange) {
@@ -77,7 +78,7 @@ export async function photoUrl(id) {
 
 /** Galerie d'un enregistrement : affichage, ajout, suppression (auteur, 15 min). */
 export async function openGallery(entity, id, onChange) {
-  const dlg = modal('Photos', '<div class="gallery" data-items><p class="muted">Chargement…</p></div><div class="row" style="margin-top:1rem"><label class="btn secondary">+ Ajouter des photos<input type="file" accept="image/*" capture="environment" multiple hidden data-add></label></div>');
+  const dlg = modal('Photos', `<div class="gallery" data-items><p class="muted">Chargement…</p></div><div class="row" style="margin-top:16px"><label class="btn secondary">${ico('add_a_photo')} Ajouter des photos<input type="file" accept="image/*" capture="environment" multiple hidden data-add></label></div>`);
   const urls = [];
   dlg.addEventListener('close', () => urls.forEach((u) => URL.revokeObjectURL(u)));
   const box = dlg.querySelector('[data-items]');
@@ -105,7 +106,7 @@ export async function openGallery(entity, id, onChange) {
     try {
       box.insertAdjacentHTML('afterbegin', '<p class="muted" data-wait>Envoi en cours…</p>');
       const n = await uploadPhotos(entity, id, [...e.target.files]);
-      toast(`${n} photo(s) ajoutée(s) ✓`);
+      toast(`${n} photo(s) ajoutée(s)`);
       await render();
       onChange?.();
     } catch (err) { toast(err.message, true); box.querySelector('[data-wait]')?.remove(); }

@@ -52,7 +52,7 @@ function compose({ subject, blocks, footer }) {
     text: `${text.join('\n')}\n--\n${foot}\n`,
     html: `<!doctype html><html lang="fr"><body style="margin:0;background:#f8fafc;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a">
 <div style="max-width:560px;margin:0 auto;padding:24px">
-<div style="font-weight:700;color:#0f766e;margin-bottom:16px">🛡️ ${esc(APP_NAME)}</div>
+<div style="font-weight:700;color:#0f766e;margin-bottom:16px">${esc(APP_NAME)}</div>
 <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:24px;font-size:15px;line-height:1.5">
 <h2 style="margin:0 0 16px;font-size:19px">${esc(subject)}</h2>${html.join('')}</div>
 <p style="color:#64748b;font-size:12px;margin-top:16px">${esc(foot)}</p></div></body></html>`,

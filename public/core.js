@@ -1,6 +1,8 @@
 // Briques communes de l'interface : état, appels API, formulaires, fenêtres.
 // (Pas de dépendance, pas d'étape de compilation : modules ES chargés par le navigateur.)
 
+import { ico } from './icons.js';
+
 /** Points d'accroche renseignés par app.js (évite une dépendance circulaire). */
 export const hooks = { logout() {}, route() {} };
 
@@ -49,12 +51,20 @@ export function longDate(date = new Date()) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+/** Vibration brève (si l'appareil le permet) : confirme un geste sans regarder l'écran. */
+export function buzz(pattern = 20) {
+  try { navigator.vibrate?.(pattern); } catch { /* vibration indisponible */ }
+}
+
+/** Message de confirmation discret en bas de l'écran (snackbar). */
 export function toast(msg, error = false) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
+  t.innerHTML = `${ico(error ? 'error' : 'check_circle', { fill: true })}<span></span>`;
+  t.querySelector('span').textContent = msg;
   t.className = `show${error ? ' error' : ''}`;
+  buzz(error ? [60, 40, 60] : 20);
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.className = ''; }, 3000);
+  toast.timer = setTimeout(() => { t.className = ''; }, error ? 4500 : 3000);
 }
 
 export async function api(path, { method = 'GET', body, raw } = {}) {
@@ -144,7 +154,7 @@ export function formHtml(fields, values = {}, submit = 'Enregistrer') {
   const main = fields.filter((f) => !f.advanced || f.type === 'hidden');
   const more = fields.filter((f) => f.advanced && f.type !== 'hidden');
   return `<form class="form">${main.map((f) => fieldHtml(f, values[f.name])).join('')}
-    ${more.length ? `<details class="more full"><summary>＋ Plus de détails</summary><div class="form">${more.map((f) => fieldHtml(f, values[f.name])).join('')}</div></details>` : ''}
+    ${more.length ? `<details class="more full"><summary>Plus de détails</summary><div class="form">${more.map((f) => fieldHtml(f, values[f.name])).join('')}</div></details>` : ''}
     <div class="submit"><button type="submit" class="big">${esc(submit)}</button></div></form>`;
 }
 
@@ -167,7 +177,7 @@ export function bindForm(root, fields, onSubmit) {
 
 export function modal(title, html) {
   const dlg = document.createElement('dialog');
-  dlg.innerHTML = `<div class="row"><h2>${esc(title)}</h2><span class="spacer"></span><button class="secondary small" data-close>✕</button></div>${html}`;
+  dlg.innerHTML = `<div class="row"><h2>${esc(title)}</h2><span class="spacer"></span><button class="icon-btn" data-close aria-label="Fermer">${ico('close')}</button></div>${html}`;
   document.body.append(dlg);
   dlg.querySelector('[data-close]').onclick = () => dlg.close();
   dlg.addEventListener('close', () => dlg.remove());

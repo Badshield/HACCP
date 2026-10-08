@@ -13,19 +13,20 @@ const express = require('express');
 const { PLANS, TRIAL_DAYS } = require('./billing');
 const { listTemplates } = require('./templates');
 const { compose } = require('./mailer');
+const { icon } = require('./landing-icons');
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const FEATURES = [
-  ['🌡️', 'Relevés de températures', 'Frigos, chambres froides, congélateurs, vitrines, maintien au chaud : un relevé en deux gestes, alerte immédiate si la température sort des limites.'],
-  ['🧽', 'Plan de nettoyage', 'Chaque tâche avec sa zone, son produit et sa fréquence. La liste du jour se coche au fur et à mesure.'],
-  ['📦', 'Contrôle à réception', 'Température, emballage, DLC et lot de chaque livraison, avec la photo du bon de livraison.'],
-  ['❄️', 'Refroidissement et remise en température', 'Durée calculée automatiquement et conformité vérifiée selon les règles du GBPH.'],
-  ['🏷️', 'Étiquettes DLC secondaires', 'Produits entamés, fabriqués ou décongelés : la DLC est calculée et l\'étiquette s\'imprime.'],
-  ['⚠️', 'Non-conformités', 'Ouvertes automatiquement à chaque anomalie, clôturées avec l\'action corrective. Rien ne passe entre les mailles.'],
-  ['🥜', 'Allergènes', 'Le tableau des 14 allergènes de vos plats, prêt à imprimer pour la salle.'],
-  ['📄', 'Classeur prêt pour le contrôle', 'Tous vos registres et leurs photos dans un PDF propre, pour la période demandée par l\'inspecteur.'],
+  ['thermostat', 'Relevés de températures', 'Frigos, chambres froides, congélateurs, vitrines, maintien au chaud : un relevé en deux gestes, alerte immédiate si la température sort des limites.'],
+  ['cleaning_services', 'Plan de nettoyage', 'Chaque tâche avec sa zone, son produit et sa fréquence. La liste du jour se coche au fur et à mesure.'],
+  ['inventory_2', 'Contrôle à réception', 'Température, emballage, DLC et lot de chaque livraison, avec la photo du bon de livraison.'],
+  ['ac_unit', 'Refroidissement et remise en température', 'Durée calculée automatiquement et conformité vérifiée selon les règles du GBPH.'],
+  ['label', 'Étiquettes DLC secondaires', 'Produits entamés, fabriqués ou décongelés : la DLC est calculée et l\'étiquette s\'imprime.'],
+  ['report', 'Non-conformités', 'Ouvertes automatiquement à chaque anomalie, clôturées avec l\'action corrective. Rien ne passe entre les mailles.'],
+  ['no_food', 'Allergènes', 'Le tableau des 14 allergènes de vos plats, prêt à imprimer pour la salle.'],
+  ['fact_check', 'Classeur prêt pour le contrôle', 'Tous vos registres et leurs photos dans un PDF propre, pour la période demandée par l\'inspecteur.'],
 ];
 
 const FAQ = [
@@ -59,8 +60,9 @@ function page({ appName, plans, templates, trialDays, contactEmail, company }) {
 <meta property="og:title" content="${esc(appName)} – Votre classeur HACCP sur tablette">
 <meta property="og:description" content="Relevés, nettoyage, traçabilité et classeur PDF pour le contrôle sanitaire. Essai gratuit ${trialDays} jours, sans carte bancaire.">
 <meta property="og:type" content="website">
-<meta name="theme-color" content="#0f766e">
+<meta name="theme-color" content="#f4fbf8">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/roboto-flex-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/landing.css">
 <script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
 </head>
@@ -82,28 +84,28 @@ function page({ appName, plans, templates, trialDays, contactEmail, company }) {
   </div>
   <div class="device" aria-hidden="true">
     <div class="screen">
-      <div class="s-head">🌡️ Relevés du matin</div>
-      <div class="s-card ok"><span>Chambre froide positive</span><b>2,4 °C</b><i>✓</i></div>
-      <div class="s-card ok"><span>Congélateur réserve</span><b>-19,8 °C</b><i>✓</i></div>
-      <div class="s-card bad"><span>Frigo du passe</span><b>6,1 °C</b><i>!</i></div>
-      <div class="s-alert">⚠ Non-conformité ouverte : produits transférés, technicien appelé</div>
+      <div class="s-head">${icon('thermostat')}Relevés du matin</div>
+      <div class="s-card ok"><span>Chambre froide positive</span><b>2,4 °C</b><i>${icon('check')}</i></div>
+      <div class="s-card ok"><span>Congélateur réserve</span><b>-19,8 °C</b><i>${icon('check')}</i></div>
+      <div class="s-card bad"><span>Frigo du passe</span><b>6,1 °C</b><i>${icon('priority_high')}</i></div>
+      <div class="s-alert">${icon('warning')}<span>Non-conformité ouverte : produits transférés, technicien appelé</span></div>
       <div class="s-card todo"><span>Vitrine desserts</span><b>— °C</b><i>OK</i></div>
     </div>
   </div>
 </div></section>
 
 <section class="pains"><div class="wrap grid3">
-  <div><h3>📚 Fini le classeur papier</h3><p>Plus de feuilles tachées, perdues ou remplies en retard. Tout est daté, signé et rangé automatiquement.</p></div>
-  <div><h3>🔔 Les oublis repérés à temps</h3><p>Un e-mail vous prévient si un relevé n'a pas été fait, et chaque anomalie vous est signalée tout de suite.</p></div>
-  <div><h3>✅ Serein le jour du contrôle</h3><p>Montrez à l'inspecteur un classeur complet, lisible, avec les actions correctives et les photos.</p></div>
+  <div><h3>${icon('edit_note')}Fini le classeur papier</h3><p>Plus de feuilles tachées, perdues ou remplies en retard. Tout est daté, signé et rangé automatiquement.</p></div>
+  <div><h3>${icon('notifications')}Les oublis repérés à temps</h3><p>Un e-mail vous prévient si un relevé n'a pas été fait, et chaque anomalie vous est signalée tout de suite.</p></div>
+  <div><h3>${icon('task_alt')}Serein le jour du contrôle</h3><p>Montrez à l'inspecteur un classeur complet, lisible, avec les actions correctives et les photos.</p></div>
 </div></section>
 
 <section id="fonctionnalites" class="section"><div class="wrap">
   <h2>Tout votre Plan de Maîtrise Sanitaire au même endroit</h2>
-  <div class="features">${FEATURES.map(([i, t, d]) => `<article><div class="ico">${i}</div><h3>${esc(t)}</h3><p>${esc(d)}</p></article>`).join('')}</div>
+  <div class="features">${FEATURES.map(([i, t, d]) => `<article><div class="ico-box">${icon(i)}</div><h3>${esc(t)}</h3><p>${esc(d)}</p></article>`).join('')}</div>
   <div class="extras">
-    <span>📷 Photos depuis le téléphone</span><span>🔢 Code PIN pour l'équipe</span><span>🔔 Rappels par e-mail</span>
-    <span>🐭 Nuisibles</span><span>🍟 Huiles de friture</span><span>🎓 Formations</span><span>📊 Export Excel</span>
+    <span>${icon('add_a_photo')}Photos depuis le téléphone</span><span>${icon('pin')}Code PIN pour l'équipe</span><span>${icon('notifications')}Rappels par e-mail</span>
+    <span>${icon('pest_control')}Nuisibles</span><span>${icon('oil_barrel')}Huiles de friture</span><span>${icon('school')}Formations</span><span>${icon('download')}Export Excel</span>
   </div>
 </div></section>
 

@@ -5,9 +5,9 @@ import {
   firstName, plural, fmtTemp, toast, api, download, formHtml, tableHtml, bindForm, modal, refreshBadge,
 } from './core.js';
 import { attachPhotoInput, bindGalleries, photoCell, openGallery, uploadPhotos } from './photos.js';
-import { flash } from './fun.js';
+import { ico } from './icons.js';
 import {
-  todayPage, capturePage, alertsPage, morePage, tempCardHtml, bindTempCards, cleanCardHtml, actionSheet,
+  todayPage, capturePage, alertsPage, morePage, tempCardHtml, bindTempCards, cleanCardHtml, actionSheet, EQUIP_ICON,
 } from './home.js';
 
 // ---------------------------------------------------------------- pages génériques
@@ -21,7 +21,7 @@ import {
  *  - ncKind / ncTitle : pilotent la feuille « Qu'avez-vous fait ? » quand l'enregistrement est hors limite
  */
 function logPage({
-  title, icon = '', intro, endpoint, fields, columns, register, after, query = '', photos,
+  title, intro, endpoint, fields, columns, register, after, query = '', photos,
   bare = false, transform, formSummary, ncKind = 'other', ncTitle,
 }) {
   if (photos) columns = [...columns, photoCell(photos)];
@@ -29,10 +29,10 @@ function logPage({
     let from = isoDay(-7);
     let to = isoDay();
     const formCard = '<div class="card form-card" data-form></div>';
-    main.innerHTML = `${bare ? '' : `<h1>${icon ? `${icon} ` : ''}${esc(title)}</h1>${intro ? `<p class="lead">${intro}</p>` : ''}`}
-      ${formSummary ? `<details class="block quick-form"><summary>${formSummary}</summary>${formCard}</details>` : formCard}
+    main.innerHTML = `${bare ? '' : `<h1>${esc(title)}</h1>${intro ? `<p class="lead">${intro}</p>` : ''}`}
+      ${formSummary ? `<details class="block quick-form"><summary>${ico('edit_note')}${esc(formSummary)}</summary>${formCard}</details>` : formCard}
       <details class="block history"${can('manager') ? ' open' : ''}>
-        <summary data-count>📜 Historique</summary>
+        <summary>${ico('history')}<span data-count>Historique</span></summary>
         <div class="row no-print filters">
           <label>Du <input type="date" data-from value="${from}"></label><label>Au <input type="date" data-to value="${to}"></label>
           <span class="spacer"></span>
@@ -54,7 +54,7 @@ function logPage({
             });
           }
         } else {
-          flash('ok', n ? `Enregistré avec ${plural(n, 'photo', 'photos')}` : 'Enregistré !');
+          toast(n ? `Enregistré avec ${plural(n, 'photo', 'photos')}` : 'Enregistré');
         }
         if (after) after(row);
         renderForm();
@@ -65,7 +65,7 @@ function logPage({
     const list = main.querySelector('[data-list]');
     const load = async () => {
       const rows = await api(`${endpoint}?from=${from}&to=${to}${query}`);
-      main.querySelector('[data-count]').textContent = `📜 Historique (${rows.length})`;
+      main.querySelector('[data-count]').textContent = `Historique (${rows.length})`;
       list.innerHTML = tableHtml(columns, rows, { rowClass: (r) => (r.compliant === 0 ? 'nc' : '') });
       bindGalleries(list, load);
     };
@@ -80,34 +80,43 @@ function logPage({
   };
 }
 
-/** Page « référentiel » : liste éditable (équipements, fournisseurs...). */
-function refPage({ title, intro, endpoint, fields, columns, role = 'manager' }) {
+/**
+ * Page « référentiel » : liste éditable (équipements, fournisseurs...).
+ * Chaque ligne s'ouvre pour modification ; la suppression se fait depuis la fenêtre de modification.
+ *  - primary : indice de la colonne affichée en titre (les autres forment la ligne de détail)
+ *  - icon : nom d'icône, ou fonction (ligne) → nom d'icône
+ */
+function refPage({ title, intro, endpoint, fields, columns, role = 'manager', icon = 'edit', primary = 0 }) {
   return async (main) => {
-    main.innerHTML = `<h1>${esc(title)}</h1>${intro ? `<p class="muted">${intro}</p>` : ''}
-      <div class="card"><div class="row"><span class="spacer"></span>${can(role) ? '<button data-add>+ Ajouter</button>' : ''}</div><div data-list></div></div>`;
+    main.innerHTML = `<h1>${esc(title)}</h1>${intro ? `<p class="lead">${intro}</p>` : ''}
+      ${can(role) ? `<div class="actions-top"><button type="button" data-add>${ico('add')}Ajouter</button></div>` : ''}<div data-list></div>`;
     const list = main.querySelector('[data-list]');
     const edit = (row) => {
       const dlg = modal(row ? 'Modifier' : 'Ajouter', formHtml(fields, row || {}));
-      bindForm(dlg, fields, async (data) => {
+      const form = bindForm(dlg, fields, async (data) => {
         await api(row ? `${endpoint}/${row.id}` : endpoint, { method: row ? 'PUT' : 'POST', body: data });
         dlg.close();
-        toast('Enregistré ✓');
+        toast('Enregistré');
         load();
       });
+      if (!row) return;
+      form.querySelector('.submit').insertAdjacentHTML('afterend', '<div class="full"><button type="button" class="danger wide" data-del>Supprimer cet élément</button></div>');
+      form.querySelector('[data-del]').onclick = async () => {
+        if (!confirm('Supprimer cet élément ? L\'historique associé est conservé.')) return;
+        try { await api(`${endpoint}/${row.id}`, { method: 'DELETE' }); dlg.close(); toast('Élément supprimé'); load(); } catch (e) { toast(e.message, true); }
+      };
     };
     const load = async () => {
       const rows = await api(endpoint);
-      const cols = can(role)
-        ? [...columns, { label: '', html: (r) => `<div class="row"><button class="secondary small" data-edit="${r.id}">Modifier</button><button class="danger small" data-del="${r.id}">Supprimer</button></div>` }]
-        : columns;
-      list.innerHTML = tableHtml(cols, rows);
+      const editable = can(role);
+      const detail = (r) => columns.filter((c, i) => i !== primary && c.get).map((c) => c.get(r)).filter((v) => v != null && String(v).trim() !== '').join(' · ');
+      list.innerHTML = rows.length ? `<div class="seg">${rows.map((r) => {
+        const inner = `<span class="seg-lead">${ico(typeof icon === 'function' ? icon(r) || 'edit' : icon)}</span>
+          <span class="seg-text"><strong>${esc(columns[primary].get(r))}</strong>${detail(r) ? `<small>${esc(detail(r))}</small>` : ''}</span>${editable ? ico('chevron_right') : ''}`;
+        return editable ? `<button type="button" class="seg-item" data-edit="${r.id}">${inner}</button>` : `<div class="seg-item static">${inner}</div>`;
+      }).join('')}</div>`
+        : `<div class="empty"><span class="empty-ico">${ico(typeof icon === 'function' ? 'edit' : icon)}</span><h2>Aucun élément</h2><p>${editable ? 'Ajoutez le premier avec le bouton ci-dessus.' : 'Rien n\'est encore enregistré.'}</p></div>`;
       list.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => edit(rows.find((r) => r.id === Number(b.dataset.edit))); });
-      list.querySelectorAll('[data-del]').forEach((b) => {
-        b.onclick = async () => {
-          if (!confirm('Supprimer cet élément ? L\'historique associé est conservé.')) return;
-          try { await api(`${endpoint}/${b.dataset.del}`, { method: 'DELETE' }); load(); } catch (e) { toast(e.message, true); }
-        };
-      });
     };
     main.querySelector('[data-add]')?.addEventListener('click', () => edit(null));
     await load();
@@ -120,7 +129,7 @@ async function dashboardPage(main) {
   const d = await api('/dashboard');
   const pct = (s) => (s.total ? `${Math.round((100 * s.ok) / s.total)} %` : '—');
   const unchecked = d.equipment.filter((e) => !e.checked_today);
-  main.innerHTML = `<h1>📊 Statistiques</h1>
+  main.innerHTML = `<h1>Statistiques</h1>
     <div class="kpis">
       <div class="kpi"><div class="v">${d.equipment.length - unchecked.length}/${d.equipment.length}</div><div class="l">Équipements relevés aujourd'hui</div></div>
       <div class="kpi"><div class="v">${d.cleaningDue.length}</div><div class="l">Tâches de nettoyage à faire</div></div>
@@ -130,11 +139,11 @@ async function dashboardPage(main) {
     </div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
       <div class="card"><div class="row"><h2>Températures</h2><span class="spacer"></span><a href="#/temperatures">Saisir →</a></div>
-        ${d.equipment.map((e) => `<div class="list-item"><div><strong>${esc(e.name)}</strong><div class="muted">${e.last_at ? `${e.last_value} °C – ${fmtDT(e.last_at)}` : 'Jamais relevé'}</div></div><span class="spacer"></span>
+        ${d.equipment.map((e) => `<div class="list-item"><div><strong>${esc(e.name)}</strong><div class="muted">${e.last_at ? `${fmtTemp(e.last_value)} °C – ${fmtDT(e.last_at)}` : 'Jamais relevé'}</div></div><span class="spacer"></span>
           ${e.checked_today ? (e.last_compliant ? '<span class="pill ok">OK</span>' : '<span class="pill bad">Alerte</span>') : '<span class="pill warn">À relever</span>'}</div>`).join('') || '<p class="muted">Aucun équipement. <a href="#/equipment">En ajouter</a></p>'}
       </div>
       <div class="card"><div class="row"><h2>Nettoyage à faire</h2><span class="spacer"></span><a href="#/cleaning">Voir →</a></div>
-        ${d.cleaningDue.map((t) => `<div class="list-item"><div><strong>${esc(t.name)}</strong><div class="muted">${esc(t.zone)} · ${FREQ[t.frequency]}</div></div></div>`).join('') || '<p class="muted">Tout est à jour ✓</p>'}
+        ${d.cleaningDue.map((t) => `<div class="list-item"><div><strong>${esc(t.name)}</strong><div class="muted">${esc(t.zone)} · ${FREQ[t.frequency]}</div></div></div>`).join('') || '<p class="muted">Tout est à jour.</p>'}
       </div>
       ${d.expiringLabels.length ? `<div class="card"><h2>DLC secondaires proches</h2>${d.expiringLabels.map((l) => `<div class="list-item"><strong>${esc(l.product)}</strong><span class="spacer"></span><span class="pill ${l.dlc < d.today ? 'bad' : 'warn'}">${fmtD(l.dlc)}</span></div>`).join('')}</div>` : ''}
       ${d.trainingsExpiring.length ? `<div class="card"><h2>Formations à renouveler</h2>${d.trainingsExpiring.map((t) => `<div class="list-item">${esc(t.person)} – ${esc(t.title)}<span class="spacer"></span><span class="pill warn">${fmtD(t.expires_on)}</span></div>`).join('')}</div>` : ''}
@@ -143,8 +152,8 @@ async function dashboardPage(main) {
 
 async function temperaturesPage(main) {
   const drafts = {};
-  main.innerHTML = `<h1>🌡️ Températures</h1>
-    <p class="lead">Tapez la température affichée sur l'appareil, puis OK. Si elle sort de la norme, l'application vous guide.</p>
+  main.innerHTML = `<h1>Températures</h1>
+    <p class="lead">Saisissez la température affichée sur l'appareil, puis validez. Si elle sort de la norme, l'application vous guide.</p>
     <div data-status></div><div data-cards></div><div data-history></div>`;
   const cards = main.querySelector('[data-cards]');
   let list = (await api('/today')).temperatures;
@@ -158,7 +167,7 @@ async function temperaturesPage(main) {
     photos: 'temperature_logs',
     ncKind: 'temp',
     ncTitle: (r) => `${r.equipment_name} : ${fmtTemp(r.value)} °C`,
-    formSummary: '✍️ Saisie détaillée : heure précise, commentaire, photo',
+    formSummary: 'Saisie détaillée : heure précise, commentaire, photo',
     fields: [
       { name: 'equipment_id', label: 'Équipement', type: 'select', required: true, options: list.map((e) => [e.id, e.name]) },
       { name: 'value', label: 'Température (°C)', type: 'number', required: true, step: '0.1' },
@@ -178,8 +187,8 @@ async function temperaturesPage(main) {
 
   const render = () => {
     const allDone = list.length > 0 && list.every((t) => t.done);
-    main.querySelector('[data-status]').innerHTML = allDone ? '<p class="all-done">✅ Tous les relevés du jour sont faits. Bravo !</p>' : '';
-    cards.innerHTML = list.map((t) => tempCardHtml(t, drafts[t.id])).join('') || `<div class="empty"><div class="big-emoji">🧊</div>
+    main.querySelector('[data-status]').innerHTML = allDone ? `<p class="all-done">${ico('check_circle', { fill: true })}Tous les relevés du jour sont effectués</p>` : '';
+    cards.innerHTML = list.map((t) => tempCardHtml(t, drafts[t.id])).join('') || `<div class="empty"><span class="empty-ico">${ico('kitchen')}</span>
       <h2>Aucun équipement</h2><p>${can('manager') ? 'Ajoutez vos frigos et congélateurs pour commencer les relevés.' : 'Demandez à votre responsable de configurer les équipements.'}</p>
       ${can('manager') ? '<a class="btn" href="#/equipment">Ajouter mes équipements</a>' : ''}</div>`;
     temps.refresh();
@@ -202,18 +211,18 @@ async function cleaningPage(main) {
     const due = tasks.filter((t) => t.due);
     const onDemand = tasks.filter((t) => t.frequency === 'after_use');
     const done = tasks.filter((t) => t.done && t.frequency !== 'after_use');
-    main.innerHTML = `<h1>🧽 Nettoyage</h1>
+    main.innerHTML = `<h1>Nettoyage</h1>
       <section class="block"><h2><span>À faire aujourd'hui</span><small>${done.length}/${due.length + done.length}</small></h2>
-        ${due.length ? due.map(cleanCardHtml).join('') : '<p class="all-done">✅ Tout est nettoyé, bravo !</p>'}</section>
+        ${due.length ? due.map(cleanCardHtml).join('') : `<p class="all-done">${ico('check_circle', { fill: true })}Tout est nettoyé</p>`}</section>
       ${onDemand.length ? `<section class="block"><h2>Après chaque usage</h2><p class="muted">À cocher quand vous venez de nettoyer.</p>${onDemand.map(cleanCardHtml).join('')}</section>` : ''}
-      ${done.length ? `<details class="block done-list"><summary>✅ Fait aujourd'hui (${done.length})</summary><ul>${done.map((t) => `<li>${esc(t.name)} <span>${esc(t.zone)}</span></li>`).join('')}</ul></details>` : ''}
+      ${done.length ? `<details class="block done-list"><summary>${ico('task_alt')}Effectué aujourd'hui (${done.length})</summary><ul>${done.map((t) => `<li>${esc(t.name)} <span>${esc(t.zone)}</span></li>`).join('')}</ul></details>` : ''}
       <div data-history></div>`;
     main.querySelectorAll('[data-clean]').forEach((b) => {
       b.onclick = async () => {
         b.disabled = true;
         try {
           await api('/cleaning-logs', { method: 'POST', body: { task_id: Number(b.dataset.clean) } });
-          flash('ok', 'Bien joué !');
+          toast('Nettoyage enregistré');
           render();
         } catch (e) { toast(e.message, true); b.disabled = false; }
       };
@@ -225,7 +234,7 @@ async function cleaningPage(main) {
       endpoint: '/cleaning-logs',
       register: 'cleaning',
       photos: 'cleaning_logs',
-      formSummary: '✍️ Noter un nettoyage fait à une autre heure',
+      formSummary: 'Noter un nettoyage fait à une autre heure',
       fields: [
         { name: 'task_id', label: 'Tâche', type: 'select', required: true, options: all.map((t) => [t.id, `${t.zone} – ${t.name}`]) },
         { name: 'done_at', label: 'Date / heure', type: 'datetime', advanced: true, default: () => localNow() },
@@ -248,7 +257,6 @@ async function receptionsPage(main) {
   const cats = state.ref.receptionCategories;
   const limit = (c) => (c.max != null ? ` (≤ ${c.max} °C)` : c.min != null ? ` (≥ ${c.min} °C)` : '');
   return logPage({
-    icon: '📦',
     title: 'Réception de marchandises',
     intro: 'Une livraison arrive : contrôlez la température, l\'emballage et la date limite.',
     endpoint: '/receptions',
@@ -313,19 +321,18 @@ const processTransform = (d) => {
 
 const pages = {
   // Les quatre onglets de la barre de navigation.
-  today: { title: 'Aujourd\'hui', icon: '🏠', render: todayPage },
-  saisir: { title: 'Saisir', icon: '➕', render: capturePage },
-  nonconformities: { title: 'Alertes', icon: '🔔', render: alertsPage },
-  plus: { title: 'Plus', icon: '☰', render: morePage },
+  today: { title: 'Aujourd\'hui', render: todayPage },
+  saisir: { title: 'Saisir', render: capturePage },
+  nonconformities: { title: 'Alertes', render: alertsPage },
+  plus: { title: 'Plus', render: morePage },
   // Pages ouvertes depuis « Saisir » ou « Plus » (voir PAGE_PLACE).
-  dashboard: { title: 'Statistiques', icon: '📊', role: 'manager', render: dashboardPage },
-  temperatures: { title: 'Températures', icon: '🌡️', render: temperaturesPage },
-  cleaning: { title: 'Nettoyage', icon: '🧽', render: cleaningPage },
-  receptions: { title: 'Réceptions', icon: '📦', render: receptionsPage },
+  dashboard: { title: 'Statistiques', role: 'manager', render: dashboardPage },
+  temperatures: { title: 'Températures', render: temperaturesPage },
+  cleaning: { title: 'Nettoyage', render: cleaningPage },
+  receptions: { title: 'Réceptions', render: receptionsPage },
   cooling: {
-    title: 'Refroidissement', icon: '❄️',
+    title: 'Refroidissement',
     render: (main) => logPage({
-      icon: '❄️',
       title: 'Refroidissement rapide',
       intro: 'Objectif : passer de +63 °C à +10 °C à cœur en moins de 2 heures.',
       endpoint: '/processes', register: 'processes', query: '&type=cooling', photos: 'process_logs',
@@ -334,9 +341,8 @@ const pages = {
     })(main),
   },
   reheating: {
-    title: 'Remise en T°', icon: '♨️',
+    title: 'Remise en T°',
     render: (main) => logPage({
-      icon: '♨️',
       title: 'Remise en température',
       intro: 'Objectif : atteindre +63 °C à cœur en moins d\'1 heure.',
       endpoint: '/processes', register: 'processes', query: '&type=reheating', photos: 'process_logs',
@@ -345,9 +351,8 @@ const pages = {
     })(main),
   },
   oil: {
-    title: 'Huiles de friture', icon: '🍟',
+    title: 'Huiles de friture',
     render: (main) => logPage({
-      icon: '🍟',
       title: 'Huile de friture',
       intro: 'Le taux de composés polaires ne doit pas dépasser 25 %. Au-delà, l\'huile doit être changée.',
       endpoint: '/oil-checks', register: 'oil',
@@ -370,11 +375,10 @@ const pages = {
     })(main),
   },
   labels: {
-    title: 'Étiquettes DLC', icon: '🏷️',
+    title: 'Étiquettes DLC',
     render: async (main) => {
       const presets = await api('/shelf-lives');
       await logPage({
-      icon: '🏷️',
       title: 'Étiquette DLC',
       intro: 'La date limite est calculée toute seule. L\'étiquette s\'imprime après l\'enregistrement.',
       endpoint: '/labels', register: 'labels',
@@ -400,9 +404,8 @@ const pages = {
     },
   },
   pests: {
-    title: 'Nuisibles', icon: '🐭',
+    title: 'Nuisibles',
     render: (main) => logPage({
-      icon: '🐭',
       title: 'Lutte contre les nuisibles',
       intro: 'Passage du prestataire ou contrôle des pièges : notez ce que vous avez constaté.',
       endpoint: '/pest-controls', register: 'pests', photos: 'pest_controls',
@@ -423,13 +426,13 @@ const pages = {
       ],
     })(main),
   },
-  allergens: { title: 'Allergènes', icon: '🥜', render: allergensPage },
+  allergens: { title: 'Allergènes', render: allergensPage },
   trainings: {
-    title: 'Formations', icon: '🎓',
+    title: 'Formations',
     render: refPage({
       title: 'Formations du personnel',
       intro: 'Formation hygiène alimentaire obligatoire (14 h) pour au moins une personne en restauration commerciale.',
-      endpoint: '/trainings',
+      endpoint: '/trainings', icon: 'school',
       fields: [
         { name: 'person', label: 'Personne', required: true },
         { name: 'title', label: 'Formation', required: true },
@@ -446,13 +449,13 @@ const pages = {
       ],
     }),
   },
-  reports: { title: 'Préparer un contrôle', icon: '📄', role: 'manager', render: reportsPage },
+  reports: { title: 'Préparer un contrôle', role: 'manager', render: reportsPage },
   equipment: {
-    title: 'Équipements', icon: '🧊',
+    title: 'Équipements',
     render: refPage({
       title: 'Équipements frigorifiques et maintien au chaud',
       intro: 'Laissez les plages vides pour appliquer les seuils réglementaires par défaut du type choisi.',
-      endpoint: '/equipment',
+      endpoint: '/equipment', icon: (r) => EQUIP_ICON[r.type] || 'thermostat',
       fields: [
         { name: 'name', label: 'Nom', required: true },
         { name: 'type', label: 'Type', type: 'select', required: true, options: () => Object.entries(state.ref.equipmentTypes).map(([k, v]) => [k, v.label]) },
@@ -467,10 +470,10 @@ const pages = {
     }),
   },
   'cleaning-tasks': {
-    title: 'Plan de nettoyage', icon: '📋',
+    title: 'Plan de nettoyage',
     render: refPage({
       title: 'Plan de nettoyage et désinfection',
-      endpoint: '/cleaning-tasks',
+      endpoint: '/cleaning-tasks', icon: 'cleaning_services', primary: 1,
       fields: [
         { name: 'zone', label: 'Zone', required: true, placeholder: 'Cuisine, plonge, salle...' },
         { name: 'name', label: 'Élément', required: true },
@@ -488,10 +491,10 @@ const pages = {
     }),
   },
   suppliers: {
-    title: 'Fournisseurs', icon: '🚚',
+    title: 'Fournisseurs',
     render: refPage({
       title: 'Fournisseurs',
-      endpoint: '/suppliers',
+      endpoint: '/suppliers', icon: 'local_shipping',
       fields: [
         { name: 'name', label: 'Nom', required: true },
         { name: 'approval_number', label: 'N° d\'agrément sanitaire' },
@@ -509,11 +512,11 @@ const pages = {
     }),
   },
   'shelf-lives': {
-    title: 'Durées de vie', icon: '⏳',
+    title: 'Durées de vie',
     render: refPage({
       title: 'Durées de vie (DLC secondaires)',
       intro: 'Produits fréquents proposés sur la page Étiquettes. Durées indicatives : validez-les dans votre Plan de Maîtrise Sanitaire.',
-      endpoint: '/shelf-lives',
+      endpoint: '/shelf-lives', icon: 'hourglass_top',
       fields: [
         { name: 'product', label: 'Produit', required: true },
         { name: 'kind', label: 'Type', type: 'select', required: true, options: Object.entries(LABEL_KIND) },
@@ -526,8 +529,8 @@ const pages = {
       ],
     }),
   },
-  billing: { title: 'Abonnement', icon: '💳', role: 'admin', render: billingPage },
-  settings: { title: 'Paramètres', icon: '⚙️', render: settingsPage },
+  billing: { title: 'Abonnement', role: 'admin', render: billingPage },
+  settings: { title: 'Paramètres', render: settingsPage },
 };
 
 // Chaque page appartient à un onglet ; `parent` ajoute un lien de retour « ‹ Saisir » ou « ‹ Plus ».
@@ -547,8 +550,8 @@ for (const [key, place] of Object.entries(PAGE_PLACE)) Object.assign(pages[key],
 /** Boutons « produits fréquents » qui préremplissent le formulaire d'étiquette. */
 function addPresetBar(main, presets) {
   const bar = document.createElement('div');
-  bar.className = 'card presets no-print';
-  bar.innerHTML = `<span class="muted">Produits fréquents :</span> ${presets.map((p) => `<button type="button" class="secondary small" data-preset="${p.id}">${esc(p.product)} · ${p.days === 0 ? 'jour même' : `J+${p.days}`}</button>`).join(' ')}`;
+  bar.className = 'presets no-print';
+  bar.innerHTML = `<span class="muted">Produits fréquents :</span><div class="chips">${presets.map((p) => `<button type="button" class="chip" data-preset="${p.id}">${esc(p.product)} · ${p.days === 0 ? 'jour même' : `J+${p.days}`}</button>`).join('')}</div>`;
   main.querySelector('[data-form]').closest('.card').before(bar);
   bar.querySelectorAll('[data-preset]').forEach((b) => {
     b.onclick = () => {
@@ -590,8 +593,8 @@ async function allergensPage(main) {
   const dishHtml = (r) => {
     const hits = r.allergens.filter((a) => picked.has(a));
     const verdict = !picked.size ? ''
-      : hits.length ? `<p class="verdict bad">⛔ Contient : ${hits.map(esc).join(', ')}</p>`
-        : `<p class="verdict ok">✅ Sans ${[...picked].map(esc).join(', ')}</p>`;
+      : hits.length ? `<p class="verdict bad">${ico('error', { fill: true })}Contient : ${hits.map(esc).join(', ')}</p>`
+        : `<p class="verdict ok">${ico('check_circle', { fill: true })}Sans ${[...picked].map(esc).join(', ')}</p>`;
     return `<article class="dish${hits.length ? ' has' : ''}">
       <div class="dish-top"><div><strong>${esc(r.name)}</strong>${r.description ? `<small>${esc(r.description)}</small>` : ''}</div>
         ${can('manager') ? `<button type="button" class="secondary small no-print" data-edit="${r.id}">Modifier</button>` : ''}</div>
@@ -616,7 +619,7 @@ async function allergensPage(main) {
     bindForm(dlg, fields, async (data) => {
       data.allergens = [...form.querySelectorAll('input[name=alg]:checked')].map((i) => i.value);
       await api(r ? `/recipes/${r.id}` : '/recipes', { method: r ? 'PUT' : 'POST', body: data });
-      dlg.close(); flash('ok', 'Plat enregistré'); render();
+      dlg.close(); toast('Plat enregistré'); render();
     });
   };
 
@@ -632,13 +635,13 @@ async function allergensPage(main) {
 
   const render = async () => {
     recipes = await api('/recipes');
-    main.innerHTML = `<h1>🥜 Allergènes</h1>
+    main.innerHTML = `<h1>Allergènes</h1>
       <p class="lead">Un client a une allergie ? Touchez l'allergène à éviter : les plats concernés sont signalés.</p>
       <div class="chips" data-pick>${all.map((a) => `<button type="button" class="chip" data-a="${esc(a)}" aria-pressed="${picked.has(a)}">${esc(a)}</button>`).join('')}</div>
-      <input type="search" class="search" data-search placeholder="🔍 Chercher un plat" aria-label="Chercher un plat" autocomplete="off" value="${esc(search)}">
+      <input type="search" class="search" data-search placeholder="Rechercher un plat" aria-label="Chercher un plat" autocomplete="off" value="${esc(search)}">
       <div data-dishes></div>
-      <div class="row no-print"><button type="button" class="secondary" onclick="window.print()">🖨️ Imprimer le tableau pour la salle</button>
-        ${can('manager') ? '<button type="button" data-add>+ Ajouter un plat</button>' : ''}</div>
+      <div class="row no-print"><button type="button" class="secondary" onclick="window.print()">${ico('print')}Imprimer le tableau pour la salle</button>
+        ${can('manager') ? `<button type="button" data-add>${ico('add')}Ajouter un plat</button>` : ''}</div>
       <div class="print-only">${matrixHtml()}</div>`;
     main.querySelector('[data-pick]').addEventListener('click', (ev) => {
       const chip = ev.target.closest('.chip');
@@ -662,7 +665,7 @@ async function reportsPage(main) {
     <div class="card"><div class="form">
       <label>Du<input type="date" data-from value="${isoDay(-30)}"></label>
       <label>Au<input type="date" data-to value="${isoDay()}"></label>
-      <div><button data-pdf>📄 Classeur HACCP complet (PDF)</button></div></div></div>
+      <div class="submit"><button class="big" data-pdf>${ico('download')}Classeur HACCP complet (PDF)</button></div></div></div>
     <div class="card"><h2>Registres individuels</h2>${regs.map((r) => `<div class="list-item"><span>${esc(r.title)}</span><span class="spacer"></span>
       <button class="secondary small" data-one="${r.key}">PDF</button><button class="secondary small" data-csv="${r.key}">CSV / Excel</button></div>`).join('')}</div>`;
   const q = () => `from=${main.querySelector('[data-from]').value}&to=${main.querySelector('[data-to]').value}`;
@@ -673,7 +676,7 @@ async function reportsPage(main) {
 
 async function billingPage(main) {
   if (location.hash.includes('checkout=success')) {
-    main.innerHTML = '<h1>Abonnement</h1><div class="card"><p>✅ Paiement reçu, merci ! Activation de votre abonnement…</p></div>';
+    main.innerHTML = '<h1>Abonnement</h1><div class="card"><p>Paiement reçu, merci. Activation de votre abonnement…</p></div>';
     // Stripe confirme l'abonnement par webhook : on attend quelques secondes.
     for (let i = 0; i < 10 && state.access?.state !== 'active'; i++) {
       await new Promise((r) => setTimeout(r, 1500));
@@ -743,7 +746,7 @@ async function notificationsSection(main) {
   if (admin) {
     bindForm(box, fields, async (data) => {
       await api('/organization/notifications', { method: 'PUT', body: { ...data, notif_grace_min: Number(data.notif_grace_min) } });
-      toast('Rappels enregistrés ✓');
+      toast('Rappels enregistrés');
     });
   }
   box.querySelector('[data-notify]').onchange = async (e) => {
@@ -782,18 +785,18 @@ async function settingsPage(main) {
       <p class="muted">Ajoute les équipements, le plan de nettoyage et les durées de vie types d'un métier. Les éléments déjà présents ne sont pas dupliqués.</p>
       <div class="row"><select data-template style="width:auto"></select><button class="secondary" data-apply>Ajouter les éléments du modèle</button></div></div>` : ''}
     ${can('manager') ? '<div class="card"><div class="row"><h2>Utilisateurs</h2><span class="spacer"></span>' + (can('admin') ? '<button class="secondary" data-add-pin-user>+ Employé sans e-mail (code PIN)</button><button data-add-user>+ Ajouter</button>' : '') + '</div><div data-users></div></div>' : ''}
-    ${can('manager') ? '<div class="card"><h2>🔢 Tablettes de cuisine</h2><div data-devices></div></div>' : ''}
+    ${can('manager') ? '<div class="card"><h2>Tablettes de cuisine</h2><div data-devices></div></div>' : ''}
     <div class="card"><h2>Mon code PIN</h2><div data-mypin></div></div>
     ${can('manager') ? '<div class="card"><h2>Rappels et alertes par e-mail</h2><div data-notif></div></div>' : ''}
     ${state.user.kiosk || state.user.pin_only ? '' : '<div class="card"><h2>Mon mot de passe</h2><div data-pw></div></div>'}
     ${can('admin') ? `<div class="card"><h2>Mes données</h2>
       <p class="muted">Vous restez propriétaire de vos données. ${state.org?.terms_accepted_at ? `CGV acceptées le ${esc(fmtDT(state.org.terms_accepted_at))} (version du ${esc(fmtD(state.org.terms_version))}).` : ''}</p>
-      <div class="row"><button class="secondary" data-export>⬇ Exporter toutes mes données (JSON)</button>
+      <div class="row"><button class="secondary" data-export>${ico('download')}Exporter toutes mes données (JSON)</button>
       <span class="spacer"></span><button class="danger" data-delete-account>Supprimer définitivement le compte</button></div></div>` : ''}`;
   const orgBox = main.querySelector('[data-org]');
   if (orgBox) {
     orgBox.innerHTML = formHtml(orgFields, state.org);
-    bindForm(orgBox, orgFields, async (data) => { state.org = await api('/organization', { method: 'PUT', body: data }); toast('Enregistré ✓'); renderShell(); });
+    bindForm(orgBox, orgFields, async (data) => { state.org = await api('/organization', { method: 'PUT', body: data }); toast('Enregistré'); renderShell(); });
   }
   const tplSelect = main.querySelector('[data-template]');
   if (tplSelect) {
@@ -814,7 +817,7 @@ async function settingsPage(main) {
       state.token = r.token;
       store.set('token', r.token);
       form.reset();
-      toast('Mot de passe modifié ✓ (vos autres appareils ont été déconnectés)');
+      toast('Mot de passe modifié : vos autres appareils ont été déconnectés');
     });
   }
   await notificationsSection(main);
@@ -841,7 +844,7 @@ async function settingsPage(main) {
     usersBox.innerHTML = tableHtml([
       { label: 'Nom', get: (u) => u.name },
       { label: 'E-mail', html: (u) => (u.pin_only ? '<span class="muted">— (code PIN seul)</span>' : esc(u.email)) },
-      { label: 'Tablette', html: (u) => (u.has_pin ? '<span class="pill ok">🔢 PIN</span>' : '<span class="muted">—</span>') },
+      { label: 'Tablette', html: (u) => (u.has_pin ? '<span class="pill ok">PIN</span>' : '<span class="muted">—</span>') },
       { label: 'Rôle', get: (u) => ROLES[u.role] },
       { label: 'Statut', html: (u) => (u.active ? '<span class="pill ok">Actif</span>' : '<span class="pill bad">Désactivé</span>') },
       { label: '', html: (u) => (can('admin') ? `<div class="row">
@@ -858,7 +861,7 @@ async function settingsPage(main) {
         dlg.querySelector('input[name=pin]').setAttribute('inputmode', 'numeric');
         bindForm(dlg, f, async (data) => {
           await api(`/users/${u.id}`, { method: 'PUT', body: { pin: data.pin } });
-          dlg.close(); toast('Code PIN enregistré ✓'); loadUsers();
+          dlg.close(); toast('Code PIN enregistré'); loadUsers();
         });
         dlg.querySelector('[data-remove-pin]')?.addEventListener('click', async () => {
           await api(`/users/${u.id}`, { method: 'PUT', body: { pin: null } }); dlg.close(); loadUsers();
@@ -880,14 +883,14 @@ async function settingsPage(main) {
     dlg.querySelector('input[name=pin]').setAttribute('inputmode', 'numeric');
     bindForm(dlg, f, async (data) => {
       await api('/users', { method: 'POST', body: { ...data, pin_only: true } });
-      dlg.close(); toast('Employé créé ✓'); loadUsers();
+      dlg.close(); toast('Employé créé'); loadUsers();
     });
   });
   await devicesSection(main);
   myPinSection(main);
   main.querySelector('[data-add-user]')?.addEventListener('click', () => {
     const dlg = modal('Nouvel utilisateur', formHtml(userFields, { role: 'employee' }));
-    bindForm(dlg, userFields, async (data) => { await api('/users', { method: 'POST', body: data }); dlg.close(); toast('Utilisateur créé ✓'); loadUsers(); });
+    bindForm(dlg, userFields, async (data) => { await api('/users', { method: 'POST', body: data }); dlg.close(); toast('Utilisateur créé'); loadUsers(); });
   });
 }
 
@@ -916,7 +919,7 @@ async function devicesSection(main) {
       const d = await api('/devices', { method: 'POST', body: { name } });
       state.deviceToken = d.token;
       store.set('deviceToken', d.token);
-      toast('Tablette configurée ✓ Les employés peuvent maintenant se connecter avec leur code PIN.');
+      toast('Tablette configurée : les employés peuvent se connecter avec leur code PIN');
       logout();
     } catch (e) { toast(e.message, true); }
   });
@@ -946,7 +949,7 @@ function myPinSection(main) {
     await api('/me/pin', { method: 'PUT', body: data });
     state.user.has_pin = true;
     form.reset();
-    toast('Code PIN enregistré ✓');
+    toast('Code PIN enregistré');
   });
 }
 
@@ -973,11 +976,11 @@ async function kioskPage() {
   };
   const showPad = (user) => {
     let pin = '';
-    app.innerHTML = `<div class="kiosk"><header><button class="secondary" data-back>← Retour</button><span class="spacer"></span></header>
+    app.innerHTML = `<div class="kiosk"><header><button class="secondary" data-back>${ico('arrow_back')}Retour</button><span class="spacer"></span></header>
       <h1>Bonjour ${esc(user.name)}</h1><p class="muted center">Tapez votre code PIN</p>
       <div class="pin-dots" data-dots></div><p class="pin-error" data-err role="alert"></p>
       <div class="pinpad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-d="${n}">${n}</button>`).join('')}
-        <button data-del aria-label="Effacer">⌫</button><button data-d="0">0</button><button data-ok class="ok" aria-label="Valider">✓</button></div></div>`;
+        <button data-del aria-label="Effacer">${ico('backspace')}</button><button data-d="0">0</button><button data-ok class="ok" aria-label="Valider">${ico('check')}</button></div></div>`;
     const dots = app.querySelector('[data-dots]');
     const err = app.querySelector('[data-err]');
     const draw = () => { dots.innerHTML = Array.from({ length: Math.max(4, pin.length) }, (_, i) => `<span class="${i < pin.length ? 'on' : ''}"></span>`).join(''); };
@@ -1027,7 +1030,7 @@ function forgotPage() {
     formHtml(fields, {}, 'Recevoir le lien'));
   bindForm(box, fields, async (data) => {
     await api('/auth/forgot', { method: 'POST', body: data });
-    box.innerHTML = `<p>📧 Si un compte existe pour <strong>${esc(data.email)}</strong>, un e-mail vient d'être envoyé. Le lien est valable 1 heure.</p>
+    box.innerHTML = `<p>Si un compte existe pour <strong>${esc(data.email)}</strong>, un e-mail vient d'être envoyé. Le lien est valable 1 heure.</p>
       <p class="muted">Pensez à vérifier vos courriers indésirables.</p>`;
   });
 }
@@ -1047,7 +1050,7 @@ function resetPage() {
     state.user = null;
     localStorage.setItem('token', res.token);
     history.replaceState(null, '', '#/today');
-    toast('Mot de passe modifié ✓');
+    toast('Mot de passe modifié');
     route();
   });
 }
@@ -1116,18 +1119,18 @@ function renderBanner() {
   const a = state.access || {};
   const link = can('admin') ? ' <a href="#/billing">Voir les offres →</a>' : ' Contactez l\'administrateur de votre compte.';
   let html = '';
-  if (a.state === 'expired') html = `<div class="banner bad">🔒 Votre essai ou votre abonnement est terminé : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div>`;
-  else if (a.state === 'past_due') html = `<div class="banner warn">⚠ Le dernier paiement a échoué.${can('admin') ? ' <a href="#/billing">Mettre à jour le moyen de paiement →</a>' : ''}</div>`;
-  else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">⏳ Plus que ${a.trialDaysLeft} jour(s) d'essai gratuit.${link}</div>`;
+  if (a.state === 'expired') html = `<div class="banner bad">${ico('lock')}<div>Votre essai ou votre abonnement est terminé : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div></div>`;
+  else if (a.state === 'past_due') html = `<div class="banner warn">${ico('warning', { fill: true })}<div>Le dernier paiement a échoué.${can('admin') ? ' <a href="#/billing">Mettre à jour le moyen de paiement →</a>' : ''}</div></div>`;
+  else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">${ico('schedule')}<div>Plus que ${a.trialDaysLeft} jour(s) d'essai gratuit.${link}</div></div>`;
   box.innerHTML = html;
 }
 
 // Quatre onglets seulement : tout le reste s'ouvre depuis « Saisir » ou « Plus ».
 const TABS = [
-  { key: 'today', icon: '🏠', label: 'Aujourd\'hui' },
-  { key: 'saisir', icon: '➕', label: 'Saisir' },
-  { key: 'nonconformities', icon: '🔔', label: 'Alertes' },
-  { key: 'plus', icon: '☰', label: 'Plus' },
+  { key: 'today', icon: 'home', label: 'Aujourd\'hui' },
+  { key: 'saisir', icon: 'edit_note', label: 'Saisir' },
+  { key: 'nonconformities', icon: 'notifications', label: 'Alertes' },
+  { key: 'plus', icon: 'more_horiz', label: 'Plus' },
 ];
 
 function renderShell() {
@@ -1135,17 +1138,23 @@ function renderShell() {
   const page = pages[current] || pages.today;
   const parent = page.parent && pages[page.parent];
   const first = firstName(state.user?.name);
+  const kiosk = !!state.user?.kiosk;
+  const who = kiosk
+    ? `<button type="button" class="who" data-switch aria-label="Changer d'utilisateur (${esc(first)})">${ico('swap_horiz')}<span>${esc(first)} · changer</span></button>`
+    : `<a class="avatar" href="#/plus" title="${esc(state.user?.name || '')}" aria-label="${esc(state.user?.name || '')}">${esc((first || '?').charAt(0).toUpperCase())}</a>`;
   app.innerHTML = `<div class="shell">
     <header class="appbar no-print">
-      ${parent ? `<a class="back" href="#/${page.parent}">‹ ${esc(parent.title)}</a>`
-        : `<span class="brand"><img src="/icon.svg" alt="" width="28" height="28"><b>${esc(state.org?.name || '')}</b></span>`}
-      <span class="spacer"></span>
-      ${state.user?.kiosk ? `<button type="button" class="who" data-switch>👤 ${esc(first)} · changer</button>` : `<span class="who">👤 ${esc(first)}</span>`}
+      ${parent ? `<a class="back" href="#/${page.parent}">${ico('arrow_back')}<span>${esc(parent.title)}</span></a>`
+        : `<span class="brand"><img src="/icon.svg" alt="" width="32" height="32"><b>${esc(state.org?.name || '')}</b></span>`}
+      <span class="spacer"></span>${who}
     </header>
     <div class="content"><div data-banner class="no-print"></div><div data-main></div></div>
-    <nav class="tabbar no-print" aria-label="Navigation principale">${TABS.map((t) => `<a href="#/${t.key}" class="tab${t.key === page.tab ? ' active' : ''}"${t.key === page.tab ? ' aria-current="page"' : ''}>
-      <span class="tab-ico" aria-hidden="true">${t.icon}</span><span>${esc(t.label)}</span>
-      ${t.key === 'nonconformities' ? `<span class="badge" data-nc-badge ${state.openNc ? '' : 'hidden'}>${state.openNc}</span>` : ''}</a>`).join('')}</nav>
+    <nav class="tabbar no-print" aria-label="Navigation principale">${TABS.map((t) => {
+    const active = t.key === page.tab;
+    return `<a href="#/${t.key}" class="tab${active ? ' active' : ''}"${active ? ' aria-current="page"' : ''}>
+      <span class="tab-ind">${ico(t.icon, { fill: active })}</span><span class="tab-label">${esc(t.label)}</span>
+      ${t.key === 'nonconformities' ? `<span class="badge" data-nc-badge ${state.openNc ? '' : 'hidden'}>${state.openNc}</span>` : ''}</a>`;
+  }).join('')}</nav>
   </div>`;
   renderBanner();
   app.querySelector('[data-switch]')?.addEventListener('click', () => logout());
@@ -1168,7 +1177,7 @@ function askTermsIfNeeded() {
       await api('/organization/accept-terms', { method: 'POST', body: { version: state.terms.version } });
       await loadSession();
       dlg.close();
-      toast('Merci ✓');
+      toast('Merci');
     } catch (e) { toast(e.message, true); }
   };
 }

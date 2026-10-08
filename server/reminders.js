@@ -110,7 +110,7 @@ function createReminders({ db, mailer, access, baseUrl }) {
       out.push({
         key: `temp:${clock.day}:${slot.label}`,
         message: composeFor(org, {
-          subject: `⚠ Relevé de températures de ${slot.label} non effectué – ${org.name}`,
+          subject: `Relevé de températures de ${slot.label} non effectué – ${org.name}`,
           blocks: [
             `Le relevé de ${slot.label} n'a pas été saisi pour ${missing.length > 1 ? 'les équipements suivants' : 'l\'équipement suivant'} :`,
             { list: missing },
@@ -133,7 +133,7 @@ function createReminders({ db, mailer, access, baseUrl }) {
     const blocks = [];
 
     const noTemp = missingTemperatures(org.id, dayStart);
-    if (noTemp.length) blocks.push({ title: `🌡️ Aucun relevé aujourd'hui (${noTemp.length})` }, { list: noTemp });
+    if (noTemp.length) blocks.push({ title: `Aucun relevé aujourd'hui (${noTemp.length})` }, { list: noTemp });
 
     const tasks = db.prepare(`SELECT c.*, (SELECT MAX(done_at) FROM cleaning_logs WHERE task_id = c.id) AS last_done
       FROM cleaning_tasks c WHERE c.org_id = ? AND c.active = 1 ORDER BY c.zone, c.name`).all(org.id);
@@ -141,7 +141,7 @@ function createReminders({ db, mailer, access, baseUrl }) {
       ? !t.last_done || t.last_done < dayStart
       : rules.cleaningDue(t.frequency, t.last_done, now)));
     if (dueTasks.length) {
-      blocks.push({ title: `🧽 Nettoyages non validés (${dueTasks.length})` }, { list: dueTasks.map((t) => `${t.zone} – ${t.name}`) });
+      blocks.push({ title: `Nettoyages non validés (${dueTasks.length})` }, { list: dueTasks.map((t) => `${t.zone} – ${t.name}`) });
     }
 
     const ncs = db.prepare("SELECT * FROM non_conformities WHERE org_id = ? AND status = 'open' ORDER BY created_at")
@@ -149,13 +149,13 @@ function createReminders({ db, mailer, access, baseUrl }) {
     if (ncs.length) {
       const shown = ncs.slice(0, 10).map((n) => `${fmtDateTime(n.created_at, tz)} : ${n.description}`);
       if (ncs.length > 10) shown.push(`… et ${ncs.length - 10} autre(s)`);
-      blocks.push({ title: `⚠️ Non-conformités à clôturer (${ncs.length})` }, { list: shown });
+      blocks.push({ title: `Non-conformités à clôturer (${ncs.length})` }, { list: shown });
     }
 
     const labels = db.prepare('SELECT * FROM labels WHERE org_id = ? AND dlc BETWEEN ? AND ? ORDER BY dlc, product')
       .all(org.id, clock.day, addDays(clock.day, 1));
     if (labels.length) {
-      blocks.push({ title: `🏷️ DLC secondaires aujourd'hui ou demain (${labels.length})` }, {
+      blocks.push({ title: `DLC secondaires aujourd'hui ou demain (${labels.length})` }, {
         list: labels.map((l) => `${l.product}${l.lot_number ? ` (lot ${l.lot_number})` : ''} : ${fmtDay(l.dlc)}`),
       });
     }
@@ -165,7 +165,7 @@ function createReminders({ db, mailer, access, baseUrl }) {
     const trainings = db.prepare(`SELECT * FROM trainings WHERE org_id = ? AND expires_on IN (${milestones.map(() => '?').join(',')})`)
       .all(org.id, ...milestones);
     if (trainings.length) {
-      blocks.push({ title: '🎓 Formations à renouveler' }, { list: trainings.map((t) => `${t.person} – ${t.title} : ${fmtDay(t.expires_on)}`) });
+      blocks.push({ title: 'Formations à renouveler' }, { list: trainings.map((t) => `${t.person} – ${t.title} : ${fmtDay(t.expires_on)}`) });
     }
 
     if (!blocks.length) return [];
@@ -203,7 +203,7 @@ function createReminders({ db, mailer, access, baseUrl }) {
     return mailer.send({
       to,
       ...composeFor(org, {
-        subject: `🚨 Non-conformité – ${org.name}`,
+        subject: `Non-conformité – ${org.name}`,
         blocks: [
           `${author ? `${author} a enregistré` : 'Nouvelle'} non-conformité le ${fmtDateTime(new Date().toISOString(), org.timezone)} :`,
           { list: [description] },
