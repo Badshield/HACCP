@@ -6,7 +6,7 @@ import {
 } from './core.js';
 import { ico } from './icons.js';
 
-const P = { token: localStorage.getItem('portalToken'), operator: null, billingEnabled: false };
+const P = { token: localStorage.getItem('portalToken'), operator: null, billingEnabled: false, mustChange: false };
 
 // ---------------------------------------------------------------- appels API
 
@@ -36,6 +36,7 @@ async function download(path, filename) {
 function logout() {
   P.token = null;
   P.operator = null;
+  P.mustChange = false;
   localStorage.removeItem('portalToken');
   route();
 }
@@ -145,6 +146,31 @@ function loginPage() {
     const res = await papi('/login', { method: 'POST', body: data });
     P.token = res.token;
     localStorage.setItem('portalToken', res.token);
+    location.hash = '#/clients';
+    route();
+  });
+}
+
+/** Premier accès avec un mot de passe provisoire : rien d'autre n'est possible avant d'en choisir un personnel. */
+function forcePasswordPage() {
+  const fields = [
+    { name: 'password', label: 'Nouveau mot de passe (10 caractères min.)', type: 'password', required: true, full: true },
+    { name: 'confirm', label: 'Confirmation', type: 'password', required: true, full: true },
+  ];
+  app.innerHTML = `<div class="auth"><div class="card">
+    <h1><img src="/icon.svg" width="32" height="32" alt=""> Choisissez votre mot de passe</h1>
+    <p class="muted">Vous êtes connecté avec un mot de passe provisoire. Choisissez-en un personnel, long et unique, pour accéder au portail.</p>
+    <div data-form></div><p class="muted"><a href="#/login" data-out>Se déconnecter</a></p></div></div>`;
+  const box = app.querySelector('[data-form]');
+  box.innerHTML = `<form class="form">${fields.map((f) => fieldHtml(f)).join('')}<div class="submit"><button type="submit" class="big">Enregistrer et continuer</button></div></form>`;
+  app.querySelector('[data-out]').onclick = (e) => { e.preventDefault(); logout(); };
+  bindForm(box, fields, async (data) => {
+    if (data.password !== data.confirm) throw new Error('Les deux mots de passe ne correspondent pas');
+    const r = await papi('/password', { method: 'PUT', body: { password: data.password } });
+    P.token = r.token;
+    P.mustChange = false;
+    localStorage.setItem('portalToken', r.token);
+    toast('Mot de passe enregistré');
     location.hash = '#/clients';
     route();
   });
@@ -568,8 +594,14 @@ async function accountPage(main) {
 async function route() {
   if (!P.token) return loginPage();
   if (!P.operator) {
-    try { const me = await papi('/me'); P.operator = me.operator; P.billingEnabled = me.billingEnabled; } catch { return loginPage(); }
+    try {
+      const me = await papi('/me');
+      P.operator = me.operator;
+      P.billingEnabled = me.billingEnabled;
+      P.mustChange = me.mustChangePassword;
+    } catch { return loginPage(); }
   }
+  if (P.mustChange) return forcePasswordPage();
   const [key = 'clients', a, b] = (location.hash.slice(2) || 'clients').split('?')[0].split('/');
   let main;
   try {

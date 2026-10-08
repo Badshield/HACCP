@@ -305,6 +305,9 @@ const ADDED_COLUMNS = {
     suspended_at: 'TEXT',
     created_by_operator: 'INTEGER',
   },
+  operators: {
+    must_change_password: 'INTEGER NOT NULL DEFAULT 0', // compte créé avec un mot de passe provisoire
+  },
   users: {
     notify: 'INTEGER NOT NULL DEFAULT 1',
     password_changed_at: 'TEXT',

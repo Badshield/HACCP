@@ -71,7 +71,11 @@ else
   set_var DOMAIN "${DOMAIN}"
   set_var ACME_EMAIL "${ACME_EMAIL}"
   set_var APP_URL "https://${DOMAIN}"
-  echo "  .env créé (secret de session et mot de passe des sauvegardes générés)."
+  # Premier accès au portail prestataire : votre e-mail + un mot de passe provisoire généré (à changer à la première connexion).
+  OPERATOR_PW="$(openssl rand -hex 10)"
+  set_var OPERATOR_EMAIL "${ACME_EMAIL}"
+  set_var OPERATOR_PASSWORD "${OPERATOR_PW}"
+  echo "  .env créé (secret de session, mot de passe des sauvegardes et accès au portail générés)."
 fi
 # Le fichier et le dossier appartiennent à l'utilisateur, pas à root : il peut les modifier sans sudo.
 chown "${OWNER}:" .env
@@ -91,5 +95,16 @@ cat <<MSG
   3. Vérifiez la configuration :  docker compose run --rm --no-deps app node server/config.js
   4. Lancez :                     docker compose up -d --build
   5. Ouvrez https://${DOMAIN}
-
+  6. Portail prestataire : https://${DOMAIN}/portal
 MSG
+if [[ -n "${OPERATOR_PW:-}" ]]; then
+  cat <<MSG
+     identifiant : ${ACME_EMAIL}
+     mot de passe provisoire : ${OPERATOR_PW}
+     (le portail vous demandera d'en choisir un nouveau à la première connexion ;
+      notez-le ci-dessus maintenant, puis retirez OPERATOR_PASSWORD du fichier .env)
+MSG
+else
+  echo "     (.env déjà présent : utilisez OPERATOR_EMAIL / OPERATOR_PASSWORD de ce fichier, ou : docker compose exec app node server/operator-cli.js vous@exemple.fr \"Votre Nom\")"
+fi
+echo

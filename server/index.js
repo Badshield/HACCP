@@ -21,9 +21,17 @@ const { openDb } = require('./db');
 const { createApp } = require('./app');
 const { startScheduler } = require('./reminders');
 const { startSnapshots } = require('./backup');
+const { ensureDefaultOperator, defaultOperatorPending, DEFAULT_OPERATOR } = require('./operator-cli');
 
 const port = Number(process.env.PORT) || 3000;
 const db = openDb();
+// Premier accès au portail prestataire : accès par défaut en test local, identifiants du fichier .env en production.
+try {
+  const first = ensureDefaultOperator(db);
+  if (first) console.log(`Accès au portail prestataire créé : ${first.email} (mot de passe à changer à la première connexion).`);
+} catch (e) {
+  console.error(`Accès au portail non créé : ${e.message}`);
+}
 if (!db.prepare('SELECT 1 FROM operators LIMIT 1').get()) {
   console.warn('Aucun accès au portail prestataire : sans lui, personne ne peut créer de clients.\n'
     + '  Créez le vôtre : npm run operator -- vous@exemple.fr "Votre Nom"\n'
@@ -42,6 +50,9 @@ app.locals.snapshotDir = snapshotDir;
 const server = app.listen(port, () => {
   console.log(`HACCP prêt sur http://localhost:${port}${snapshotDir ? ` (instantanés : ${snapshotDir})` : ''}`);
   console.log(`Portail prestataire : http://localhost:${port}/portal`);
+  if (process.env.NODE_ENV !== 'production' && defaultOperatorPending(db)) {
+    console.log(`  Identifiant par défaut : ${DEFAULT_OPERATOR.email}   Mot de passe : ${DEFAULT_OPERATOR.password}   (à changer à la première connexion)`);
+  }
   if (process.env.NODE_ENV !== 'production') {
     // En test local : adresses à taper sur une tablette ou un téléphone du même réseau Wi-Fi.
     const lan = Object.values(require('os').networkInterfaces()).flat()

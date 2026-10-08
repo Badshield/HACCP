@@ -19,7 +19,7 @@ function signOperatorToken(op, { expiresIn = '8h' } = {}) {
 }
 
 function authenticateOperator(db) {
-  const find = db.prepare('SELECT id, email, name, active, password_changed_at FROM operators WHERE id = ?');
+  const find = db.prepare('SELECT id, email, name, active, password_changed_at, must_change_password FROM operators WHERE id = ?');
   return (req, res, next) => {
     const header = req.get('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -31,7 +31,7 @@ function authenticateOperator(db) {
       if (op.password_changed_at && payload.iat < Math.floor(Date.parse(op.password_changed_at) / 1000)) {
         return res.status(401).json({ error: 'Session expirée' });
       }
-      req.operator = op;
+      req.operator = { ...op, must_change: !!op.must_change_password };
       next();
     } catch {
       res.status(401).json({ error: 'Session expirée' });

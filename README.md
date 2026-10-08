@@ -61,7 +61,7 @@ Prérequis : Node.js 20 ou plus récent.
 npm install
 npm run seed     # crée un établissement de démo : demo@haccp.local / demo1234
 npm start        # http://localhost:3000 : page de connexion des clients ; http://localhost:3000/portal : portail prestataire
-                 # (en local, le seed crée operateur@haccp.local / operateur1234 ; sinon : npm run operator -- vous@exemple.fr "Votre Nom")
+                 # (en local : identifiant admin@releveo.local, mot de passe ChangeMoi-2026, à changer à la première connexion)
 ```
 
 Tests automatisés :

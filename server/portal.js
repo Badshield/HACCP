@@ -44,23 +44,35 @@ function createPortal(db, { mailer, billing, photos, purgeOrganization, limiter,
       return res.status(401).json({ error: 'Identifiants incorrects' });
     }
     db.prepare('UPDATE operators SET last_login_at = ? WHERE id = ?').run(nowIso(), op.id);
-    res.json({ token: signOperatorToken(op), operator: { id: op.id, name: op.name, email: op.email } });
+    res.json({ token: signOperatorToken(op), operator: { id: op.id, name: op.name, email: op.email }, mustChangePassword: !!op.must_change_password });
   });
 
   router.use(authenticateOperator(db));
 
+  // Compte créé avec un mot de passe provisoire (accès par défaut, installation) : rien d'autre n'est
+  // possible tant qu'un nouveau mot de passe n'a pas été choisi.
+  router.use((req, res, next) => {
+    const allowed = (req.method === 'GET' && req.path === '/me') || (req.method === 'PUT' && req.path === '/password');
+    if (!req.operator.must_change || allowed) return next();
+    res.status(403).json({ error: 'Choisissez d\'abord votre mot de passe personnel', code: 'password_change_required' });
+  });
+
   router.get('/me', (req, res) => res.json({
     operator: { id: req.operator.id, name: req.operator.name, email: req.operator.email },
     billingEnabled: billing.enabled,
+    mustChangePassword: req.operator.must_change,
   }));
 
   router.put('/password', (req, res) => {
     const row = db.prepare('SELECT password_hash FROM operators WHERE id = ?').get(req.operator.id);
-    if (!bcrypt.compareSync(String(req.body?.current || ''), row.password_hash)) {
+    checkOperatorPassword(req.body?.password);
+    if (req.operator.must_change) {
+      // La session vient de s'ouvrir avec le mot de passe provisoire : pas besoin de le ressaisir, mais le nouveau doit être différent.
+      if (bcrypt.compareSync(req.body.password, row.password_hash)) throw T.fail('Choisissez un mot de passe différent du mot de passe provisoire');
+    } else if (!bcrypt.compareSync(String(req.body?.current || ''), row.password_hash)) {
       return res.status(400).json({ error: 'Mot de passe actuel incorrect' });
     }
-    checkOperatorPassword(req.body?.password);
-    db.prepare('UPDATE operators SET password_hash = ?, password_changed_at = ? WHERE id = ?')
+    db.prepare('UPDATE operators SET password_hash = ?, password_changed_at = ?, must_change_password = 0 WHERE id = ?')
       .run(bcrypt.hashSync(req.body.password, 10), nowIso(), req.operator.id);
     // Les autres sessions sont déconnectées ; celle-ci reçoit un nouveau jeton.
     res.json({ token: signOperatorToken(req.operator) });

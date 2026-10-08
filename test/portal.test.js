@@ -6,7 +6,9 @@ const bcrypt = require('bcryptjs');
 const { openDb } = require('../server/db');
 const { createApp } = require('../server/app');
 const { createMemoryMailer } = require('../server/mailer');
-const { upsertOperator } = require('../server/operator-cli');
+const {
+  upsertOperator, ensureDefaultOperator, defaultOperatorPending, DEFAULT_OPERATOR,
+} = require('../server/operator-cli');
 const { makeCustomer } = require('./helpers');
 
 const mailer = createMemoryMailer();
@@ -360,4 +362,73 @@ test('la page du portail est servie, non indexable ; l\'accueil mène à l\'appl
   assert.match(page.headers.get('x-robots-tag'), /noindex/);
   const root = await fetch(`${base}/`, { redirect: 'manual' });
   assert.equal(root.headers.get('location'), '/app');
+});
+
+test('premier accès : identifiant par défaut en test local seulement, mot de passe à changer à la première connexion', async () => {
+  // Jamais d'identifiant connu d'avance sur un serveur en production.
+  const prod = openDb(':memory:');
+  assert.equal(ensureDefaultOperator(prod, { NODE_ENV: 'production' }), null);
+  assert.equal(prod.prepare('SELECT COUNT(*) AS n FROM operators').get().n, 0);
+  assert.throws(() => ensureDefaultOperator(prod, { NODE_ENV: 'production', OPERATOR_EMAIL: 'a@presta.test' }), /ensemble/);
+  assert.throws(() => ensureDefaultOperator(prod, { NODE_ENV: 'production', OPERATOR_EMAIL: 'a@presta.test', OPERATOR_PASSWORD: 'court' }), /10 caractères/);
+  // En production, l'accès vient du fichier .env (rempli par l'installation du serveur).
+  const fromEnv = ensureDefaultOperator(prod, { NODE_ENV: 'production', OPERATOR_EMAIL: 'vous@presta.test', OPERATOR_PASSWORD: 'mot-de-passe-installation' });
+  assert.equal(fromEnv.source, 'env');
+  assert.equal(prod.prepare('SELECT COUNT(*) AS n FROM operators WHERE email = ?').get(DEFAULT_OPERATOR.email).n, 0, 'pas d\'accès par défaut en plus');
+  assert.equal(ensureDefaultOperator(prod, { NODE_ENV: 'production', OPERATOR_EMAIL: 'x@presta.test', OPERATOR_PASSWORD: 'un-autre-mot-de-passe' }), null, 'créé une seule fois');
+
+  // Test local : l'accès par défaut est créé tout seul.
+  const local = openDb(':memory:');
+  const first = ensureDefaultOperator(local, { NODE_ENV: 'development' });
+  assert.deepEqual([first.email, first.password, first.source], ['admin@releveo.local', 'ChangeMoi-2026', 'default']);
+  assert.equal(ensureDefaultOperator(local, {}), null);
+  assert.equal(defaultOperatorPending(local), true);
+
+  const app = createApp(local, { billing: { stripe: null }, mailer: createMemoryMailer(), baseUrl: 'https://app.test' });
+  const srv = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
+  const url = (p) => `http://127.0.0.1:${srv.address().port}/api/portal${p}`;
+  const send = async (p, { token, method = 'GET', body } = {}) => {
+    const res = await fetch(url(p), { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+  try {
+    const login = await send('/login', { method: 'POST', body: { email: DEFAULT_OPERATOR.email, password: DEFAULT_OPERATOR.password } });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.mustChangePassword, true);
+    const token = login.body.token;
+    assert.equal((await send('/me', { token })).body.mustChangePassword, true);
+    // Tant que le mot de passe n'est pas changé, rien d'autre n'est possible.
+    for (const path of ['/orgs', '/operators', '/activity', '/templates']) {
+      const r = await send(path, { token });
+      assert.equal(r.status, 403, path);
+      assert.equal(r.body.code, 'password_change_required');
+    }
+    assert.equal((await send('/orgs', { token, method: 'POST', body: { name: 'X', admin: { name: 'Y', email: 'y@x.fr' } } })).status, 403);
+    // Le nouveau mot de passe doit être différent et assez long.
+    assert.equal((await send('/password', { token, method: 'PUT', body: { password: DEFAULT_OPERATOR.password } })).status, 400);
+    assert.equal((await send('/password', { token, method: 'PUT', body: { password: 'court' } })).status, 400);
+    const changed = await send('/password', { token, method: 'PUT', body: { password: 'mon-vrai-mot-de-passe' } });
+    assert.equal(changed.status, 200);
+    assert.equal((await send('/orgs', { token: changed.body.token })).status, 200, 'accès complet après le changement');
+    assert.equal((await send('/me', { token: changed.body.token })).body.mustChangePassword, false);
+    assert.equal(defaultOperatorPending(local), false);
+    // L'ancien mot de passe ne fonctionne plus.
+    assert.equal((await send('/login', { method: 'POST', body: { email: DEFAULT_OPERATOR.email, password: DEFAULT_OPERATOR.password } })).status, 401);
+    const again = await send('/login', { method: 'POST', body: { email: DEFAULT_OPERATOR.email, password: 'mon-vrai-mot-de-passe' } });
+    assert.equal(again.body.mustChangePassword, false);
+    // Un changement de mot de passe ordinaire exige toujours le mot de passe actuel.
+    assert.equal((await send('/password', { token: again.body.token, method: 'PUT', body: { password: 'encore-un-autre-mdp' } })).status, 400);
+  } finally { srv.close(); }
+});
+
+test('mot de passe imposé en ligne de commande : pas de changement forcé ; généré : changement forcé', () => {
+  const mem = openDb(':memory:');
+  const chosen = upsertOperator(mem, { email: 'choisi@presta.test', password: 'mot-de-passe-choisi' });
+  assert.equal(chosen.mustChange, false);
+  const generated = upsertOperator(mem, { email: 'genere@presta.test' });
+  assert.equal(generated.mustChange, true);
+  assert.equal(mem.prepare('SELECT must_change_password AS m FROM operators WHERE email = ?').get('genere@presta.test').m, 1);
+  // Réinitialiser un compte avec un mot de passe généré impose de nouveau le changement.
+  upsertOperator(mem, { email: 'choisi@presta.test' });
+  assert.equal(mem.prepare('SELECT must_change_password AS m FROM operators WHERE email = ?').get('choisi@presta.test').m, 1);
 });

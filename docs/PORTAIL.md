@@ -19,21 +19,32 @@ Il n'y a **aucune inscription publique** : c'est vous (et votre équipe SAV) qui
 
 Le portail est **en lecture seule sur les registres** : aucune route ne permet d'y modifier une saisie d'un client. Une saisie HACCP est une preuve ; elle doit rester celle du client.
 
-## Premier accès : créer votre compte opérateur
+## Premier accès : identifiant par défaut
 
-Le portail n'a pas de mot de passe par défaut : vous créez votre accès en ligne de commande, sur la machine qui fait tourner l'application.
+| Où | Identifiant | Mot de passe |
+|---|---|---|
+| **Test sur votre ordinateur** | `admin@releveo.local` | `ChangeMoi-2026` |
+| **Serveur en ligne** | l'adresse e-mail donnée à `install.sh` | un mot de passe provisoire **généré** et affiché à la fin de `install.sh` (et écrit dans `.env`, ligne `OPERATOR_PASSWORD`) |
+
+Dans les deux cas, **le portail vous impose de choisir votre mot de passe personnel à la première connexion** (10 caractères minimum, différent du provisoire) avant de vous laisser faire quoi que ce soit. Après cela, retirez `OPERATOR_PASSWORD` du fichier `.env` du serveur.
+
+L'accès par défaut se crée tout seul au démarrage quand aucun opérateur n'existe encore. **Sur un serveur en ligne, aucun identifiant connu d'avance n'est jamais créé** : sans `OPERATOR_EMAIL` et `OPERATOR_PASSWORD` dans `.env`, personne ne peut entrer tant que vous n'avez pas créé votre accès en ligne de commande (ci-dessous). C'est voulu : un portail qui pilote tous vos clients ne doit pas avoir un mot de passe public.
+
+> ⚠ Cette protection s'appuie sur `NODE_ENV=production`, que le déploiement Docker de ce dépôt définit. Si vous lancez l'application autrement sur un serveur en ligne, définissez `NODE_ENV=production` et `OPERATOR_EMAIL` / `OPERATOR_PASSWORD`.
+
+### Créer ou réinitialiser un opérateur en ligne de commande
 
 ```bash
-# En local (ordinateur de test)
+# En local
 npm run operator -- vous@exemple.fr "Votre Nom"
 
 # Sur le serveur
 docker compose exec app node server/operator-cli.js vous@exemple.fr "Votre Nom"
 ```
 
-La commande affiche un **mot de passe aléatoire, une seule fois** : notez-le dans un gestionnaire de mots de passe, connectez-vous sur `/portal`, puis changez-le dans *Compte*. Relancer la même commande **réinitialise** le mot de passe de cet opérateur (utile en cas d'oubli). Mot de passe imposé : `... operator-cli.js vous@exemple.fr "Nom" "un-mot-de-passe-de-10-caracteres-ou-plus"`.
+La commande affiche un **mot de passe provisoire aléatoire, une seule fois** (le portail vous demandera d'en choisir un autre à la connexion). Relancer la même commande **réinitialise** le mot de passe de cet opérateur : c'est la solution en cas d'oubli. Pour imposer vous-même un mot de passe (sans changement forcé) : `... operator-cli.js vous@exemple.fr "Nom" "un-mot-de-passe-de-10-caracteres-ou-plus"`.
 
-En test local, `npm run seed` crée un compte de démonstration : `operateur@haccp.local` / `operateur1234`, avec deux clients d'exemple.
+En test local, `npm run seed` crée aussi deux clients d'exemple (un restaurant et une boulangerie) ; l'accès par défaut ci-dessus fonctionne avec ou sans eux.
 
 ## Comment un client démarre
 

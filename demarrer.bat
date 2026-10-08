@@ -36,7 +36,7 @@ if not exist data\haccp.db (
 
 echo.
 echo Demarrage. Compte de demonstration : demo@haccp.local / demo1234
-echo Portail prestataire : http://localhost:3000/portal  operateur@haccp.local / operateur1234
+echo Portail prestataire : http://localhost:3000/portal   identifiant admin@releveo.local   mot de passe ChangeMoi-2026 (a changer a la premiere connexion)
 echo Laissez cette fenetre ouverte pendant vos tests ; fermez-la pour arreter le logiciel.
 echo.
 start "" cmd /c "timeout /t 4 >nul & start http://localhost:3000"

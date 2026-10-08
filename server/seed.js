@@ -11,9 +11,11 @@ const { TEMPLATES } = require('./templates');
 const { trialEnd } = require('./billing');
 const { TERMS_VERSION } = require('./legal');
 const { createCustomer } = require('./tenants');
-const { upsertOperator } = require('./operator-cli');
+const { ensureDefaultOperator, DEFAULT_OPERATOR } = require('./operator-cli');
 
-const DEMO_OPERATOR = { email: 'operateur@haccp.local', name: 'Prestataire (démo)', password: 'operateur1234' };
+function printPortalAccess() {
+  console.log(`Portail prestataire (/portal) : ${DEFAULT_OPERATOR.email} / ${DEFAULT_OPERATOR.password} (à changer à la première connexion)`);
+}
 
 /** Reprend dans le journal d'audit les saisies insérées directement : le portail y lit « dernière saisie ». */
 function backfillAudit(db, orgId, adminId) {
@@ -44,11 +46,8 @@ function seedSecondClient(db, password) {
 function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
     console.log(`Le compte ${email} existe déjà, rien à faire.`);
-    // Base créée avant le portail : on ajoute l'opérateur de démonstration s'il n'y en a aucun.
-    if (!db.prepare('SELECT 1 FROM operators LIMIT 1').get()) {
-      const op = upsertOperator(db, DEMO_OPERATOR);
-      console.log(`Portail prestataire (/portal) : ${op.email} / ${op.password}`);
-    }
+    // Base créée avant le portail : on ajoute l'accès par défaut s'il n'y a aucun opérateur.
+    if (ensureDefaultOperator(db, { ...process.env, NODE_ENV: 'development' })) printPortalAccess();
     return;
   }
   db.transaction(() => {
@@ -139,9 +138,9 @@ function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
     backfillAudit(db, org, admin);
     seedSecondClient(db, password);
   })();
-  const op = upsertOperator(db, DEMO_OPERATOR);
+  ensureDefaultOperator(db, { ...process.env, NODE_ENV: 'development' });
   console.log(`Démo créée : ${email} / ${password}`);
-  console.log(`Portail prestataire (/portal) : ${op.email} / ${op.password}`);
+  printPortalAccess();
 }
 
 if (require.main === module) seed(openDb());

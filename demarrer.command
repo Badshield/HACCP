@@ -26,7 +26,8 @@ fi
 
 echo
 echo "▶ Démarrage. Compte de démonstration : demo@haccp.local / demo1234"
-echo "  Portail prestataire : http://localhost:3000/portal  (operateur@haccp.local / operateur1234)"
+echo "  Portail prestataire : http://localhost:3000/portal"
+echo "    identifiant : admin@releveo.local   mot de passe : ChangeMoi-2026  (à changer à la première connexion)"
 echo "  Laissez cette fenêtre ouverte pendant vos tests ; fermez-la pour arrêter le logiciel."
 echo
 ( sleep 3; if command -v open >/dev/null; then open "http://localhost:3000"; elif command -v xdg-open >/dev/null; then xdg-open "http://localhost:3000"; fi ) >/dev/null 2>&1 &

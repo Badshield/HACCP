@@ -21,7 +21,7 @@ Téléchargez la version **LTS** sur **https://nodejs.org/fr** et installez-la e
 Au premier lancement, l'installation prend environ une minute, puis un **restaurant de démonstration** est créé avec deux semaines de relevés. Le navigateur s'ouvre ensuite sur **http://localhost:3000**.
 
 - **Compte de démonstration** (un restaurant) : `demo@haccp.local`, mot de passe `demo1234`. Un second client d'exemple, une boulangerie : `boulanger@haccp.local` / `demo1234`.
-- **Portail prestataire** (vous, qui gérez les clients) : http://localhost:3000/portal avec `operateur@haccp.local` / `operateur1234`.
+- **Portail prestataire** (vous, qui gérez les clients) : http://localhost:3000/portal, identifiant `admin@releveo.local`, mot de passe `ChangeMoi-2026`. Le portail vous demande de choisir votre propre mot de passe dès la première connexion. Cet accès est créé automatiquement, même si vous aviez déjà lancé le logiciel avant l'arrivée du portail.
 - **Laissez la fenêtre noire ouverte** pendant vos tests. Fermez-la pour arrêter le logiciel.
 
 > Si le fichier ne se lance pas sur Mac (« permission refusée »), ouvrez le Terminal dans le dossier et tapez `chmod +x demarrer.command`, ou bien lancez directement `npm ci`, `npm run seed`, puis `npm start`.

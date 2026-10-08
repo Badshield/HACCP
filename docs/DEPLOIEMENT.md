@@ -102,13 +102,11 @@ docker compose logs backup # doit se terminer par « ✔ Sauvegarde terminée. �
 
 Ouvrez `https://app.pack-hygiene.fr` : la page de connexion s'affiche, avec le cadenas HTTPS.
 
-Il n'y a **pas d'inscription publique** : créez maintenant **votre accès au portail prestataire**, puis vos clients depuis le portail (voir [PORTAIL.md](PORTAIL.md)) :
+Il n'y a **pas d'inscription publique** : vos clients se créent depuis le **portail prestataire** (voir [PORTAIL.md](PORTAIL.md)).
 
-```bash
-docker compose exec app node server/operator-cli.js vous@pack-hygiene.fr "Votre Nom"
-```
+À la fin de `install.sh`, un **identifiant** (l'adresse e-mail que vous avez donnée) et un **mot de passe provisoire** ont été affichés ; ils sont aussi dans `.env` (`OPERATOR_EMAIL`, `OPERATOR_PASSWORD`). Connectez-vous sur `https://app.pack-hygiene.fr/portal` : le portail vous impose de choisir tout de suite votre mot de passe personnel. Ensuite, retirez `OPERATOR_PASSWORD` du fichier `.env`, puis créez un premier client de test avec votre propre adresse e-mail pour vérifier l'invitation de bout en bout.
 
-La commande affiche un mot de passe, une seule fois. Connectez-vous sur `https://app.pack-hygiene.fr/portal`, changez-le dans *Compte*, puis créez un premier client de test avec votre propre adresse e-mail pour vérifier l'invitation de bout en bout.
+Mot de passe provisoire perdu ou `.env` recréé ? `docker compose exec app node server/operator-cli.js vous@pack-hygiene.fr "Votre Nom"` crée ou réinitialise votre accès.
 
 ## Étape 6 : brancher les services externes
 
