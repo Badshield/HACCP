@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../server/db');
+const { makeCustomer } = require('./helpers');
 const { createApp } = require('../server/app');
 const { createMemoryMailer } = require('../server/mailer');
 const { isDue } = require('../server/today');
@@ -23,11 +24,7 @@ async function call(path, { token, method = 'GET', body } = {}) {
 }
 
 async function signup(email, template) {
-  const r = await call('/api/auth/signup', {
-    method: 'POST', body: { organization: `Org ${email}`, name: 'Gérant', email, password: 'motdepasse', template, accept_terms: true },
-  });
-  assert.equal(r.status, 201);
-  return { token: r.body.token, orgId: r.body.user.org_id, userId: r.body.user.id };
+  return makeCustomer(db, { email, template, name: 'Gérant' });
 }
 
 function addEquipment(orgId, name) {

@@ -78,7 +78,7 @@ Le script installe Docker, active le pare-feu (SSH, HTTP et HTTPS seulement) et 
 | Section | À renseigner | Guide |
 |---|---|---|
 | Sauvegardes | `RESTIC_REPOSITORY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` | étape 2 ci-dessus |
-| E-mails | `SMTP_*`, `MAIL_FROM` | [EMAILS.md](EMAILS.md) |
+| E-mails | `SMTP_*`, `MAIL_FROM` | [EMAILS.md](EMAILS.md) (les invitations des clients en dépendent) |
 | Paiements | `STRIPE_*` (clés **live** pour encaisser réellement) | [STRIPE.md](STRIPE.md) |
 | Informations légales | `LEGAL_*`, `HOST_*` | [LEGAL.md](LEGAL.md) |
 
@@ -100,7 +100,15 @@ docker compose ps          # les 3 services doivent être « Up », l'applicatio
 docker compose logs backup # doit se terminer par « ✔ Sauvegarde terminée. »
 ```
 
-Ouvrez `https://app.pack-hygiene.fr` : la page de connexion s'affiche, avec le cadenas HTTPS. Créez votre propre compte depuis « Créer un compte » pour tester.
+Ouvrez `https://app.pack-hygiene.fr` : la page de connexion s'affiche, avec le cadenas HTTPS.
+
+Il n'y a **pas d'inscription publique** : créez maintenant **votre accès au portail prestataire**, puis vos clients depuis le portail (voir [PORTAIL.md](PORTAIL.md)) :
+
+```bash
+docker compose exec app node server/operator-cli.js vous@pack-hygiene.fr "Votre Nom"
+```
+
+La commande affiche un mot de passe, une seule fois. Connectez-vous sur `https://app.pack-hygiene.fr/portal`, changez-le dans *Compte*, puis créez un premier client de test avec votre propre adresse e-mail pour vérifier l'invitation de bout en bout.
 
 ## Étape 6 : brancher les services externes
 

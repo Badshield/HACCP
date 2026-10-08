@@ -956,7 +956,7 @@ function myPinSection(main) {
 /** Écran de la tablette : choix de la personne puis clavier PIN. */
 async function kioskPage() {
   let info;
-  try { info = await api('/kiosk'); } catch (e) { return authPage('login'); }
+  try { info = await api('/kiosk'); } catch (e) { return authPage(); }
   const showUsers = () => {
     app.innerHTML = `<div class="kiosk"><header><img src="/icon.svg" width="34" height="34" alt=""><div><strong>${esc(info.organization)}</strong><br><span>${esc(info.device)}</span></div>
       <span class="spacer"></span><span class="clock" data-clock></span></header>
@@ -966,7 +966,7 @@ async function kioskPage() {
       <p class="kiosk-foot"><a href="#/login" data-classic>Connexion responsable (e-mail)</a></p></div>`;
     tick();
     app.querySelectorAll('[data-user]').forEach((b) => { b.onclick = () => showPad(info.users.find((u) => u.id === Number(b.dataset.user))); });
-    app.querySelector('[data-classic]').onclick = (e) => { e.preventDefault(); authPage('login'); };
+    app.querySelector('[data-classic]').onclick = (e) => { e.preventDefault(); authPage(); };
   };
   const tick = () => {
     const c = app.querySelector('[data-clock]');
@@ -1063,42 +1063,26 @@ function logout() {
   route();
 }
 
-async function authPage(mode = 'login') {
-  const signup = mode === 'signup';
-  const templates = signup ? await api('/templates').catch(() => []) : [];
-  const fields = signup
-    ? [
-      { name: 'organization', label: 'Nom de l\'établissement', required: true, full: true },
-      {
-        name: 'template', label: 'Votre métier (préremplit équipements, nettoyage et durées de vie)', type: 'select', full: true,
-        default: 'restaurant', emptyLabel: 'Autre : partir de zéro', options: templates.map((t) => [t.key, t.label]),
-      },
-      { name: 'name', label: 'Votre nom', required: true, full: true },
-      { name: 'email', label: 'E-mail', type: 'email', required: true, full: true },
-      { name: 'password', label: 'Mot de passe (8 caractères min.)', type: 'password', required: true, full: true },
-      {
-        name: 'accept_terms', type: 'checkbox', required: true, full: true,
-        labelHtml: 'J\'accepte les <a href="/legal/cgv" target="_blank">CGV</a>, la <a href="/legal/confidentialite" target="_blank">politique de confidentialité</a> et le <a href="/legal/sous-traitance" target="_blank">contrat de sous-traitance</a>',
-      },
-    ]
-    : [
-      { name: 'email', label: 'E-mail', type: 'email', required: true, full: true },
-      { name: 'password', label: 'Mot de passe', type: 'password', required: true, full: true },
-    ];
+/** Connexion. Pas d'inscription : les espaces clients sont créés par le prestataire, qui envoie une invitation. */
+function authPage() {
+  const fields = [
+    { name: 'email', label: 'E-mail', type: 'email', required: true, full: true },
+    { name: 'password', label: 'Mot de passe', type: 'password', required: true, full: true },
+  ];
   app.innerHTML = `<div class="auth"><div class="card">
     <h1><img src="/icon.svg" width="32" height="32" alt=""> Pack Hygiène HACCP</h1>
-    <p class="muted">${signup ? 'Créez votre espace en 1 minute. 30 jours d\'essai gratuit, sans carte bancaire.' : 'Connectez-vous à votre espace.'}</p>
+    <p class="muted">Connectez-vous à votre espace.</p>
     <div data-form></div>
-    <p class="muted">${signup ? 'Déjà inscrit ? <a href="#/login">Se connecter</a>' : '<a href="#/forgot">Mot de passe oublié ?</a><br>Nouveau client ? <a href="#/signup">Créer un compte</a>'}</p>
+    <p class="muted"><a href="#/forgot">Mot de passe oublié ?</a></p>
   </div><p class="legal-links"><a href="/legal/mentions" target="_blank">Mentions légales</a> · <a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a></p></div>`;
   const box = app.querySelector('[data-form]');
-  box.innerHTML = formHtml(fields, {}, signup ? 'Créer mon compte' : 'Se connecter');
+  box.innerHTML = formHtml(fields, {}, 'Se connecter');
   bindForm(box, fields, async (data) => {
-    const res = await api(signup ? '/auth/signup' : '/auth/login', { method: 'POST', body: data });
+    const res = await api('/auth/login', { method: 'POST', body: data });
     state.token = res.token;
     localStorage.setItem('token', res.token);
     await loadSession();
-    location.hash = signup ? (data.template ? '#/today' : '#/equipment') : '#/today';
+    location.hash = '#/today';
     route();
   });
 }
@@ -1109,6 +1093,7 @@ async function loadSession() {
   state.org = me.organization;
   state.access = me.access;
   state.terms = me.terms;
+  state.support = me.support;
   state.ref = ref;
 }
 
@@ -1117,11 +1102,14 @@ function renderBanner() {
   const box = document.querySelector('[data-banner]');
   if (!box) return;
   const a = state.access || {};
-  const link = can('admin') ? ' <a href="#/billing">Voir les offres →</a>' : ' Contactez l\'administrateur de votre compte.';
+  // Accès piloté par le prestataire : pas de paiement en ligne, on renvoie vers lui.
+  const contact = state.support ? ` Contactez-le : <a href="mailto:${esc(state.support)}">${esc(state.support)}</a>.` : ' Contactez-le pour continuer.';
+  const link = a.managed ? contact : can('admin') ? ' <a href="#/billing">Voir les offres →</a>' : ' Contactez l\'administrateur de votre compte.';
   let html = '';
-  if (a.state === 'expired') html = `<div class="banner bad">${ico('lock')}<div>Votre essai ou votre abonnement est terminé : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div></div>`;
+  if (a.state === 'suspended') html = `<div class="banner bad">${ico('lock')}<div>Votre accès est suspendu : le compte est en lecture seule (vos registres restent consultables et exportables).${contact}</div></div>`;
+  else if (a.state === 'expired') html = `<div class="banner bad">${ico('lock')}<div>${a.managed ? 'Votre période d\'essai est terminée' : 'Votre essai ou votre abonnement est terminé'} : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div></div>`;
   else if (a.state === 'past_due') html = `<div class="banner warn">${ico('warning', { fill: true })}<div>Le dernier paiement a échoué.${can('admin') ? ' <a href="#/billing">Mettre à jour le moyen de paiement →</a>' : ''}</div></div>`;
-  else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">${ico('schedule')}<div>Plus que ${a.trialDaysLeft} jour(s) d'essai gratuit.${link}</div></div>`;
+  else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">${ico('schedule')}<div>Plus que ${a.trialDaysLeft} jour(s) d'essai.${link}</div></div>`;
   box.innerHTML = html;
 }
 
@@ -1188,10 +1176,10 @@ async function route() {
   if (key === 'reset') return resetPage();
   if (!state.token) {
     // Tablette de cuisine : écran de choix de la personne, sauf demande explicite d'une autre page.
-    if (state.deviceToken && !['login', 'signup'].includes(key)) return kioskPage();
-    return authPage(key === 'signup' ? 'signup' : 'login');
+    if (state.deviceToken && key !== 'login') return kioskPage();
+    return authPage();
   }
-  if (key === 'login' || key === 'signup') { location.hash = '#/today'; return; }
+  if (key === 'login' || key === 'signup') { location.hash = '#/today'; return; } // « signup » : anciens favoris
   try {
     if (!state.user) { await loadSession(); refreshBadge(); }
   } catch { return; }

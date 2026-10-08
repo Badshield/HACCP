@@ -20,7 +20,8 @@ Téléchargez la version **LTS** sur **https://nodejs.org/fr** et installez-la e
 
 Au premier lancement, l'installation prend environ une minute, puis un **restaurant de démonstration** est créé avec deux semaines de relevés. Le navigateur s'ouvre ensuite sur **http://localhost:3000**.
 
-- **Compte de démonstration** : `demo@haccp.local`, mot de passe `demo1234`.
+- **Compte de démonstration** (un restaurant) : `demo@haccp.local`, mot de passe `demo1234`. Un second client d'exemple, une boulangerie : `boulanger@haccp.local` / `demo1234`.
+- **Portail prestataire** (vous, qui gérez les clients) : http://localhost:3000/portal avec `operateur@haccp.local` / `operateur1234`.
 - **Laissez la fenêtre noire ouverte** pendant vos tests. Fermez-la pour arrêter le logiciel.
 
 > Si le fichier ne se lance pas sur Mac (« permission refusée »), ouvrez le Terminal dans le dossier et tapez `chmod +x demarrer.command`, ou bien lancez directement `npm ci`, `npm run seed`, puis `npm start`.
@@ -40,7 +41,9 @@ Tapez cette adresse dans le navigateur de la tablette, connectée **à la même 
 L'application s'organise en 4 onglets : **Aujourd'hui**, **Saisir**, **Alertes** et **Plus**.
 
 - [ ] **Connexion** : http://localhost:3000 ouvre directement la page de connexion (compte de démonstration ci-dessus).
-- [ ] **Inscription** d'un nouvel établissement avec un modèle de métier (*Créer un compte*) : les équipements et le plan de nettoyage sont-ils réalistes pour ce métier ? Le cadre « Pour bien démarrer » sur *Aujourd'hui* est-il clair ?
+- [ ] **Portail → Nouveau client** : créez un établissement avec un modèle de métier et votre adresse e-mail comme administrateur. En local, aucun e-mail ne part : copiez le lien d'invitation affiché, ouvrez-le dans une fenêtre de navigation privée, choisissez un mot de passe. Les équipements et le plan de nettoyage sont-ils réalistes pour ce métier ? Le cadre « Pour bien démarrer » sur *Aujourd'hui* est-il clair ?
+- [ ] **Portail → fiche d'un client** : ajoutez une personne (*Utilisateurs*), consultez l'*Activité* et les *Registres* après quelques saisies côté client, essayez *Suspendre l'accès* (le client doit voir un bandeau et ne plus pouvoir saisir), puis *Rétablir*. Ajoutez une note SAV.
+- [ ] **Étanchéité** : connecté comme client, tapez `/portal` : vous ne devez rien pouvoir y faire.
 - [ ] **Aujourd'hui → températures** : tapez une valeur normale dans une carte (l'indication « conforme » apparaît dès que vous tapez), puis une valeur hors limite (8 °C dans un frigo). La fenêtre « Action corrective » s'ouvre-t-elle ? Est-il compréhensible sans explication ?
 - [ ] **Congélateur** : le signe « − » est-il déjà choisi ? Pensez-vous à le changer pour un frigo ?
 - [ ] **Journée complète** : une fois tous les relevés et nettoyages faits, le bandeau du haut passe au vert et affiche une coche. Est-ce assez clair pour savoir qu'il n'y a plus rien à faire ?

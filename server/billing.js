@@ -40,12 +40,30 @@ const PLANS = {
 // le paiement pendant quelques jours, on laisse travailler avec un avertissement.
 const ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due']);
 
-function trialEnd(from = Date.now()) {
-  return new Date(from + TRIAL_DAYS * 86400000).toISOString();
+function trialEnd(from = Date.now(), days = TRIAL_DAYS) {
+  return new Date(from + days * 86400000).toISOString();
 }
 
-/** Calcule les droits d'un établissement à partir de son état d'abonnement. */
+function trialAccess(org, now, extra = {}) {
+  const trialEndsAt = org.trial_ends_at ? Date.parse(org.trial_ends_at) : 0;
+  if (trialEndsAt > now) {
+    return {
+      state: 'trial', readOnly: false, plan: 'pro', maxUsers: null, trialEndsAt: org.trial_ends_at,
+      trialDaysLeft: Math.ceil((trialEndsAt - now) / 86400000), ...extra,
+    };
+  }
+  return { state: 'expired', readOnly: true, plan: null, maxUsers: PLANS.essentiel.maxUsers, subscriptionStatus: org.subscription_status, ...extra };
+}
+
+/**
+ * Calcule les droits d'un établissement.
+ * Le prestataire pilote l'accès depuis le portail : suspendu (lecture seule), essai daté, ou actif
+ * (facturation gérée hors de l'application). En mode « auto », c'est l'abonnement Stripe qui décide.
+ */
 function accessFor(org, { enabled }, now = Date.now()) {
+  if (org.suspended_at) return { state: 'suspended', readOnly: true, plan: null, maxUsers: null, managed: true };
+  if (org.access_mode === 'active') return { state: 'active', readOnly: false, plan: 'pro', maxUsers: null, managed: true };
+  if (org.access_mode === 'trial') return trialAccess(org, now, { managed: true });
   if (!enabled) return { state: 'unlimited', readOnly: false, plan: null, maxUsers: null };
   if (org.subscription_status && ACTIVE_STATUSES.has(org.subscription_status)) {
     const plan = PLANS[org.plan] ? org.plan : 'pro';
@@ -57,19 +75,8 @@ function accessFor(org, { enabled }, now = Date.now()) {
       currentPeriodEnd: org.current_period_end,
     };
   }
-  const trialEndsAt = org.trial_ends_at ? Date.parse(org.trial_ends_at) : 0;
   // L'essai reste valable même si un premier paiement est en cours (statut « incomplete »).
-  if (trialEndsAt > now) {
-    return {
-      state: 'trial',
-      readOnly: false,
-      plan: 'pro',
-      maxUsers: null,
-      trialEndsAt: org.trial_ends_at,
-      trialDaysLeft: Math.ceil((trialEndsAt - now) / 86400000),
-    };
-  }
-  return { state: 'expired', readOnly: true, plan: null, maxUsers: PLANS.essentiel.maxUsers, subscriptionStatus: org.subscription_status };
+  return trialAccess(org, now);
 }
 
 function createBilling(db, opts = {}) {
@@ -94,9 +101,18 @@ function createBilling(db, opts = {}) {
   const WRITE_ALLOWED = [/^\/billing\//, /^\/me\//, /^\/organization\/(accept-terms|delete)$/];
   function guard(req, res, next) {
     if (req.method === 'GET' || WRITE_ALLOWED.some((re) => re.test(req.path))) return next();
-    if (access(req.user.org_id).readOnly) {
+    const a = access(req.user.org_id);
+    if (a.readOnly) {
+      if (a.state === 'suspended') {
+        return res.status(402).json({
+          error: 'Votre accès est suspendu. Vos registres restent consultables ; contactez votre prestataire pour reprendre la saisie.',
+          code: 'suspended',
+        });
+      }
       return res.status(402).json({
-        error: 'Votre période d\'essai ou votre abonnement est terminé. Vos registres restent consultables ; abonnez-vous pour continuer à saisir.',
+        error: a.managed
+          ? 'Votre période d\'essai est terminée. Vos registres restent consultables ; contactez votre prestataire pour continuer à saisir.'
+          : 'Votre période d\'essai ou votre abonnement est terminé. Vos registres restent consultables ; abonnez-vous pour continuer à saisir.',
         code: 'subscription_required',
       });
     }

@@ -10,10 +10,45 @@ const rules = require('./rules');
 const { TEMPLATES } = require('./templates');
 const { trialEnd } = require('./billing');
 const { TERMS_VERSION } = require('./legal');
+const { createCustomer } = require('./tenants');
+const { upsertOperator } = require('./operator-cli');
+
+const DEMO_OPERATOR = { email: 'operateur@haccp.local', name: 'Prestataire (démo)', password: 'operateur1234' };
+
+/** Reprend dans le journal d'audit les saisies insérées directement : le portail y lit « dernière saisie ». */
+function backfillAudit(db, orgId, adminId) {
+  for (const [table, field] of [['temperature_logs', 'recorded_at'], ['cleaning_logs', 'done_at'], ['receptions', 'received_at'],
+    ['process_logs', 'start_at'], ['oil_checks', 'checked_at']]) {
+    db.prepare(`INSERT INTO audit_log (org_id, user_id, action, entity, entity_id, at)
+      SELECT org_id, user_id, 'create', '${table}', id, ${field} FROM ${table} WHERE org_id = ?`).run(orgId);
+  }
+  db.prepare("INSERT INTO audit_log (org_id, user_id, action, entity) VALUES (?,?,'login','session')").run(orgId, adminId);
+}
+
+/** Second client de démonstration (boulangerie, essai en cours) pour que le portail ait de quoi montrer. */
+function seedSecondClient(db, password) {
+  const { org, admin } = createCustomer(db, {
+    name: 'Boulangerie Au Bon Pain', group_name: 'Famille Dupain', activity: 'Boulangerie-pâtisserie', address: '8 place du Marché, 69002 Lyon',
+    template: 'boulangerie', mode: 'trial', trial_days: 30, admin: { name: 'Paul Dupain', email: 'boulanger@haccp.local' },
+  });
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 10), admin.id);
+  db.prepare('UPDATE organizations SET terms_accepted_at = ?, terms_version = ? WHERE id = ?').run(new Date().toISOString(), TERMS_VERSION, org.id);
+  const temp = db.prepare('INSERT INTO temperature_logs (org_id, equipment_id, value, compliant, user_id, recorded_at) VALUES (?,?,?,?,?,?)');
+  for (const e of db.prepare('SELECT * FROM equipment WHERE org_id = ?').all(org.id)) {
+    const mid = e.min_temp != null && e.max_temp != null ? (e.min_temp + e.max_temp) / 2 : e.max_temp ?? e.min_temp ?? 3;
+    for (let d = 3; d >= 1; d--) temp.run(org.id, e.id, Math.round(mid * 10) / 10, 1, admin.id, new Date(Date.now() - d * 86400000 - 3600000).toISOString());
+  }
+  backfillAudit(db, org.id, admin.id);
+}
 
 function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
     console.log(`Le compte ${email} existe déjà, rien à faire.`);
+    // Base créée avant le portail : on ajoute l'opérateur de démonstration s'il n'y en a aucun.
+    if (!db.prepare('SELECT 1 FROM operators LIMIT 1').get()) {
+      const op = upsertOperator(db, DEMO_OPERATOR);
+      console.log(`Portail prestataire (/portal) : ${op.email} / ${op.password}`);
+    }
     return;
   }
   db.transaction(() => {
@@ -22,6 +57,7 @@ function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
       .run('Restaurant Le Bon Goût', '12 rue des Halles, 75001 Paris', 'Restauration traditionnelle', '12345678900012', trialEnd(),
         new Date().toISOString(), TERMS_VERSION)
       .lastInsertRowid;
+    db.prepare("UPDATE organizations SET access_mode = 'active' WHERE id = ?").run(org);
     const hash = bcrypt.hashSync(password, 10);
     const addUser = db.prepare('INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?,?)');
     const admin = addUser.run(org, email, hash, 'Marie Dupont (gérante)', 'admin').lastInsertRowid;
@@ -100,8 +136,12 @@ function seed(db, { email = 'demo@haccp.local', password = 'demo1234' } = {}) {
 
     db.prepare('INSERT INTO trainings (org_id, person, title, organism, date, expires_on) VALUES (?,?,?,?,?,?)')
       .run(org, 'Marie Dupont', 'Formation hygiène alimentaire (14 h)', 'CCI Paris', '2023-03-15', null);
+    backfillAudit(db, org, admin);
+    seedSecondClient(db, password);
   })();
+  const op = upsertOperator(db, DEMO_OPERATOR);
   console.log(`Démo créée : ${email} / ${password}`);
+  console.log(`Portail prestataire (/portal) : ${op.email} / ${op.password}`);
 }
 
 if (require.main === module) seed(openDb());

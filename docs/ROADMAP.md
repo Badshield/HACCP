@@ -10,7 +10,10 @@ Indispensable avant d'encaisser des abonnements :
 
 - [x] **Paiement et abonnements** (Stripe Billing) : essai gratuit de 30 jours, puis lecture seule si l'abonnement n'est pas payé
 - [x] **Mot de passe oublié** (envoi SMTP : Brevo, Scaleway, Postmark...)
-- [ ] Vérification de l'adresse e-mail à l'inscription
+- [x] **Portail prestataire** : création des clients par vous seul (plus d'inscription publique), e-mails rattachés, invitations, pilotage de l'accès, historique et registres en lecture seule, notes SAV
+- [ ] Portail : authentification à deux facteurs pour les opérateurs
+- [ ] Portail : « voir comme le client » (session en lecture seule, tracée) pour le SAV
+- [ ] Portail : tickets de support avec échanges par e-mail avec le client
 - [x] **Rappels automatiques par e-mail** : relevés oubliés, alerte immédiate de non-conformité, récapitulatif du soir
 - [ ] Rappels par SMS (Brevo SMS) pour les alertes critiques
 - [x] **Modèles de démarrage par métier** (restaurant, boulangerie, boucherie, traiteur, food-truck, collectivité) : équipements, plan de nettoyage et durées de vie préremplis à l'inscription

@@ -24,6 +24,11 @@ const { startSnapshots } = require('./backup');
 
 const port = Number(process.env.PORT) || 3000;
 const db = openDb();
+if (!db.prepare('SELECT 1 FROM operators LIMIT 1').get()) {
+  console.warn('Aucun accès au portail prestataire : sans lui, personne ne peut créer de clients.\n'
+    + '  Créez le vôtre : npm run operator -- vous@exemple.fr "Votre Nom"\n'
+    + '  (sur le serveur : docker compose exec app node server/operator-cli.js vous@exemple.fr "Votre Nom")');
+}
 const app = createApp(db);
 const stopReminders = startScheduler(app.locals.reminders);
 
@@ -36,6 +41,7 @@ app.locals.snapshotDir = snapshotDir;
 
 const server = app.listen(port, () => {
   console.log(`HACCP prêt sur http://localhost:${port}${snapshotDir ? ` (instantanés : ${snapshotDir})` : ''}`);
+  console.log(`Portail prestataire : http://localhost:${port}/portal`);
   if (process.env.NODE_ENV !== 'production') {
     // En test local : adresses à taper sur une tablette ou un téléphone du même réseau Wi-Fi.
     const lan = Object.values(require('os').networkInterfaces()).flat()

@@ -8,6 +8,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "seed": "node server/seed.js",
+    "operator": "node server/operator-cli.js",
     "check-config": "node server/config.js",
     "test": "node --test test/*.test.js"
   },

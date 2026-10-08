@@ -8,7 +8,36 @@ if (SECRET === DEV_SECRET && process.env.NODE_ENV === 'production') {
   throw new Error('JWT_SECRET doit être défini en production');
 }
 
+// Les jetons des opérateurs du portail sont signés avec une clé distincte : un jeton client ne peut
+// jamais ouvrir le portail, et un jeton opérateur ne donne accès à aucun espace client.
+const OPERATOR_SECRET = `${SECRET}|portail`;
+
 const ROLE_LEVEL = { employee: 1, manager: 2, admin: 3 };
+
+function signOperatorToken(op, { expiresIn = '8h' } = {}) {
+  return jwt.sign({ op: op.id, kind: 'operator' }, OPERATOR_SECRET, { expiresIn });
+}
+
+function authenticateOperator(db) {
+  const find = db.prepare('SELECT id, email, name, active, password_changed_at FROM operators WHERE id = ?');
+  return (req, res, next) => {
+    const header = req.get('authorization') || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Authentification requise' });
+    try {
+      const payload = jwt.verify(token, OPERATOR_SECRET);
+      const op = payload.kind === 'operator' ? find.get(payload.op) : null;
+      if (!op || !op.active) return res.status(401).json({ error: 'Compte désactivé' });
+      if (op.password_changed_at && payload.iat < Math.floor(Date.parse(op.password_changed_at) / 1000)) {
+        return res.status(401).json({ error: 'Session expirée' });
+      }
+      req.operator = op;
+      next();
+    } catch {
+      res.status(401).json({ error: 'Session expirée' });
+    }
+  };
+}
 
 /** dev : identifiant de la tablette pour une session ouverte par code PIN. */
 function signToken(user, { dev, expiresIn = '12h' } = {}) {
@@ -52,4 +81,4 @@ function requireRole(minRole) {
   };
 }
 
-module.exports = { signToken, authenticate, requireRole, ROLE_LEVEL };
+module.exports = { signToken, authenticate, requireRole, ROLE_LEVEL, signOperatorToken, authenticateOperator };

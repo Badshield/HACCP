@@ -512,7 +512,7 @@ const MORE = [
   { title: 'Mon compte', items: [
     { href: '#/settings', icon: 'settings', title: 'Paramètres', sub: 'Équipe, rappels, tablette', role: 'manager' },
     { href: '#/settings', icon: 'pin', title: 'Mon code PIN', sub: 'Et mot de passe', notRole: 'manager' },
-    { href: '#/billing', icon: 'credit_card', title: 'Abonnement', sub: 'Offre et factures', role: 'admin' },
+    { href: '#/billing', icon: 'credit_card', title: 'Abonnement', sub: 'Offre et factures', role: 'admin', hideIfManaged: true },
     { action: 'logout', icon: 'logout', title: 'Se déconnecter', sub: '' },
   ] },
 ];
@@ -521,7 +521,7 @@ export function morePage(main) {
   const kiosk = !!state.user?.kiosk;
   const sections = MORE.filter((s) => !s.role || can(s.role)).map((s) => ({
     ...s,
-    items: s.items.filter((i) => (!i.role || can(i.role)) && (!i.notRole || !can(i.notRole))).map((i) => (
+    items: s.items.filter((i) => (!i.role || can(i.role)) && (!i.notRole || !can(i.notRole)) && !(i.hideIfManaged && (state.access?.managed || state.access?.state === 'unlimited'))).map((i) => (
       i.action === 'logout' && kiosk ? { ...i, icon: 'swap_horiz', title: 'Changer d\'utilisateur' } : i)),
   })).filter((s) => s.items.length);
   main.innerHTML = `<h1>Plus</h1>${sections.map(groupHtml).join('')}

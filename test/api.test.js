@@ -5,9 +5,11 @@ const assert = require('node:assert/strict');
 const { openDb } = require('../server/db');
 const { createApp } = require('../server/app');
 const { createMemoryMailer } = require('../server/mailer');
+const { makeCustomer } = require('./helpers');
 
 let server;
 let base;
+let db;
 
 async function call(path, { token, method = 'GET', body } = {}) {
   const res = await fetch(base + path, {
@@ -20,22 +22,23 @@ async function call(path, { token, method = 'GET', body } = {}) {
 }
 
 async function signup(org, email) {
-  const r = await call('/api/auth/signup', { method: 'POST', body: { organization: org, name: 'Admin', email, password: 'motdepasse', accept_terms: true } });
-  assert.equal(r.status, 201);
-  return r.body.token;
+  return makeCustomer(db, { orgName: org, email }).token;
 }
 
 test.before(async () => {
-  const app = createApp(openDb(':memory:'), { billing: { stripe: null }, mailer: createMemoryMailer() });
+  db = openDb(':memory:');
+  const app = createApp(db, { billing: { stripe: null }, mailer: createMemoryMailer() });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.after(() => server.close());
 
-test('inscription, connexion et authentification', async () => {
+test('pas d\'inscription publique ; connexion et authentification', async () => {
   await signup('Resto A', 'a@test.fr');
-  const dup = await call('/api/auth/signup', { method: 'POST', body: { organization: 'X', name: 'X', email: 'a@test.fr', password: 'motdepasse', accept_terms: true } });
-  assert.equal(dup.status, 409);
+  const before = db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n;
+  const open = await call('/api/auth/signup', { method: 'POST', body: { organization: 'X', name: 'X', email: 'pirate@test.fr', password: 'motdepasse', accept_terms: true } });
+  assert.ok(open.status >= 400 && open.status < 500, 'l\'inscription publique n\'existe plus');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n, before);
   assert.equal((await call('/api/auth/login', { method: 'POST', body: { email: 'a@test.fr', password: 'mauvais' } })).status, 401);
   const ok = await call('/api/auth/login', { method: 'POST', body: { email: 'A@test.fr', password: 'motdepasse' } });
   assert.equal(ok.status, 200);

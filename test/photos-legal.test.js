@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { openDb } = require('../server/db');
+const { makeCustomer } = require('./helpers');
 const { createApp } = require('../server/app');
 const { createMemoryMailer } = require('../server/mailer');
 const { TERMS_VERSION } = require('../server/legal');
@@ -29,11 +30,7 @@ async function call(urlPath, { token, method = 'GET', body, raw, type } = {}) {
 }
 
 async function signup(email) {
-  const r = await call('/api/auth/signup', {
-    method: 'POST', body: { organization: `Org ${email}`, name: 'Gérant', email, password: 'motdepasse', accept_terms: true },
-  });
-  assert.equal(r.status, 201);
-  return { token: r.body.token, orgId: r.body.user.org_id };
+  return makeCustomer(db, { email, name: 'Gérant' });
 }
 
 const upload = (token, entity, id, raw = PNG, type) => call(`/api/photos?entity=${entity}&entity_id=${id}`, { token, method: 'POST', raw, type });
@@ -47,10 +44,11 @@ test.before(async () => {
 });
 test.after(() => { server.close(); fs.rmSync(uploadDir, { recursive: true, force: true }); });
 
-test('inscription : acceptation des CGV obligatoire et enregistrée', async () => {
-  const refused = await call('/api/auth/signup', { method: 'POST', body: { organization: 'X', name: 'X', email: 'nocgv@test.fr', password: 'motdepasse' } });
-  assert.equal(refused.status, 400);
-  assert.match(refused.body.error, /CGV/);
+test('client créé par le prestataire : les CGV sont à accepter à la première connexion', async () => {
+  const fresh = makeCustomer(db, { email: 'nocgv@test.fr', terms: false });
+  assert.equal((await call('/api/me', { token: fresh.token })).body.terms.outdated, true, 'CGV non encore acceptées');
+  assert.equal((await call('/api/organization/accept-terms', { token: fresh.token, method: 'POST', body: { version: TERMS_VERSION } })).status, 200);
+  assert.equal((await call('/api/me', { token: fresh.token })).body.terms.outdated, false);
   const { token, orgId } = await signup('cgv@test.fr');
   const me = (await call('/api/me', { token })).body;
   assert.deepEqual(me.terms, { version: TERMS_VERSION, outdated: false });

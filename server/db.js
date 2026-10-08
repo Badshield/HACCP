@@ -242,6 +242,41 @@ CREATE TABLE IF NOT EXISTS audit_log (
   at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- Portail prestataire : comptes des opérateurs (vous et votre équipe SAV), séparés des utilisateurs des clients.
+CREATE TABLE IF NOT EXISTS operators (
+  id INTEGER PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  password_changed_at TEXT,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Journal des actions faites depuis le portail (création de client, accès, invitations...).
+-- Pas de clé étrangère : le journal survit à la suppression d'un client.
+CREATE TABLE IF NOT EXISTS operator_log (
+  id INTEGER PRIMARY KEY,
+  operator_id INTEGER,
+  org_id INTEGER,
+  action TEXT NOT NULL,
+  detail TEXT,
+  at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_oplog_org ON operator_log(org_id, id);
+
+-- Notes internes du SAV sur un client (jamais visibles par le client).
+CREATE TABLE IF NOT EXISTS org_notes (
+  id INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  operator_id INTEGER,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log(org_id, id);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, action);
 CREATE INDEX IF NOT EXISTS idx_temp_org_date ON temperature_logs(org_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_clean_org_date ON cleaning_logs(org_id, done_at);
 CREATE INDEX IF NOT EXISTS idx_recep_org_date ON receptions(org_id, received_at);
@@ -264,6 +299,11 @@ const ADDED_COLUMNS = {
     notif_nc_alert: 'INTEGER NOT NULL DEFAULT 1',
     terms_accepted_at: 'TEXT',
     terms_version: 'TEXT',
+    // Portail : regroupement de plusieurs sites d'un même client, et accès piloté à la main.
+    group_name: 'TEXT',
+    access_mode: "TEXT NOT NULL DEFAULT 'auto'", // auto (Stripe) | trial | active
+    suspended_at: 'TEXT',
+    created_by_operator: 'INTEGER',
   },
   users: {
     notify: 'INTEGER NOT NULL DEFAULT 1',

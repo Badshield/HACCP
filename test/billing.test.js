@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Stripe = require('stripe');
 const { openDb } = require('../server/db');
+const { makeCustomer } = require('./helpers');
 const { createApp } = require('../server/app');
 const { createMemoryMailer } = require('../server/mailer');
 const { accessFor } = require('../server/billing');
@@ -36,12 +37,7 @@ async function call(path, { token, method = 'GET', body } = {}) {
 }
 
 async function signup(email, template) {
-  const r = await call('/api/auth/signup', {
-    method: 'POST',
-    body: { organization: `Org ${email}`, name: 'Admin', email, password: 'motdepasse', template, accept_terms: true },
-  });
-  assert.equal(r.status, 201, JSON.stringify(r.body));
-  return { token: r.body.token, orgId: r.body.user.org_id };
+  return makeCustomer(db, { email, template });
 }
 
 function sendWebhook(event, { secret = WEBHOOK_SECRET } = {}) {
@@ -105,9 +101,7 @@ test('modèles de métiers : listés publiquement et appliqués à l\'inscriptio
   const names = (await call('/api/cleaning-tasks', { token })).body.map((t) => t.name.toLowerCase());
   assert.equal(names.length, new Set(names).size, 'aucun doublon');
 
-  assert.equal((await call('/api/auth/signup', {
-    method: 'POST', body: { organization: 'X', name: 'X', email: 'x@test.fr', password: 'motdepasse', template: 'inconnu' },
-  })).status, 400);
+  assert.throws(() => makeCustomer(db, { email: 'x@test.fr', template: 'inconnu' }), /Modèle de métier inconnu/);
 });
 
 test('modèle vierge : aucune donnée préremplie', async () => {

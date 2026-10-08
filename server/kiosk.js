@@ -41,7 +41,7 @@ function checkPin(pin) {
 
 const hashPin = (pin) => bcrypt.hashSync(checkPin(pin), 10);
 
-function createKiosk(db, { limiter }) {
+function createKiosk(db, { limiter, onLogin }) {
   function deviceFrom(req) {
     const token = req.get('x-device-token');
     if (!token) return null;
@@ -83,6 +83,7 @@ function createKiosk(db, { limiter }) {
       });
     }
     db.prepare('UPDATE users SET pin_failed = 0, pin_locked_until = NULL WHERE id = ?').run(user.id);
+    onLogin?.(user);
     res.json({
       token: signToken(user, { dev: req.device.id, expiresIn: KIOSK_SESSION }),
       user: { id: user.id, name: user.name, role: 'employee', kiosk: true },

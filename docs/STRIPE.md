@@ -4,7 +4,8 @@ Sans configuration Stripe, l'application fonctionne en accès illimité (pratiqu
 
 ## Fonctionnement
 
-1. Inscription : l'essai démarre et donne accès à tout (équivalent Pro).
+0. Stripe est **facultatif** : le portail prestataire pilote déjà l'accès de chaque client à la main (essai, actif, suspendu, voir [PORTAIL.md](PORTAIL.md)). Les clients concernés par Stripe sont ceux que vous passez en « Paiement en ligne » dans le portail.
+1. Création du client par le prestataire : l'essai démarre et donne accès à tout (équivalent Pro).
 2. Dans **Gestion → Abonnement**, l'administrateur choisit une offre et paie sur la page sécurisée **Stripe Checkout** (carte, codes promo, n° de TVA intracommunautaire).
 3. Stripe prévient l'application par **webhook** : l'abonnement devient actif.
 4. L'administrateur gère sa carte, change d'offre, télécharge ses factures ou résilie depuis le **portail client Stripe** (« Gérer mon abonnement et mes factures »).

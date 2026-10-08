@@ -9,8 +9,8 @@ const { signToken, authenticate, requireRole } = require('./auth');
 const { coerce } = require('./resource');
 const { mountModules } = require('./modules');
 const { mountReports } = require('./reports');
-const { createBilling, trialEnd } = require('./billing');
-const { TEMPLATES, listTemplates, applyTemplate } = require('./templates');
+const { createBilling } = require('./billing');
+const { listTemplates, applyTemplate } = require('./templates');
 const { createMailer, compose, appUrl } = require('./mailer');
 const { createPhotos } = require('./photos');
 const { mountLegal, TERMS_VERSION } = require('./legal');
@@ -18,6 +18,7 @@ const { createKiosk, hashPin } = require('./kiosk');
 const { snapshotAge } = require('./backup');
 const { mountToday } = require('./today');
 const { createReminders, normalizeTimes, defaultBaseUrl } = require('./reminders');
+const { createPortal } = require('./portal');
 
 const RESET_TTL_MS = 60 * 60000;
 const sha256 = (v) => crypto.createHash('sha256').update(v).digest('hex');
@@ -25,7 +26,8 @@ const nowIso = () => new Date().toISOString();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const ORG_PRIVATE = ['stripe_customer_id', 'stripe_subscription_id'];
+// Champs internes jamais renvoyés au client : identifiants Stripe et pilotage par le prestataire.
+const ORG_PRIVATE = ['stripe_customer_id', 'stripe_subscription_id', 'created_by_operator', 'access_mode'];
 function publicOrg(org) {
   const out = { ...org };
   for (const k of ORG_PRIVATE) delete out[k];
@@ -106,6 +108,20 @@ function createApp(db, opts = {}) {
 
   const api = express.Router();
 
+  // Une connexion laisse une trace dans le journal d'audit : le prestataire voit la dernière connexion de chaque client.
+  const recordLogin = (user) => db.prepare('INSERT INTO audit_log (org_id, user_id, action, entity) VALUES (?,?,?,?)')
+    .run(user.org_id, user.id, 'login', 'session');
+
+  // Suppression définitive d'un établissement et de tout ce qui s'y rattache (compte client ou portail).
+  async function purgeOrganization(org) {
+    await billing.cancelSubscription(org);
+    db.transaction(() => {
+      for (const t of ['audit_log', 'reminder_log']) db.prepare(`DELETE FROM ${t} WHERE org_id = ?`).run(org.id);
+      db.prepare('DELETE FROM organizations WHERE id = ?').run(org.id);
+    })();
+    photos.removeOrgFiles(org.id);
+  }
+
   // ---------- Public ----------
   // Supervision (UptimeRobot, Better Stack...) : vérifie aussi la base et l'âge du dernier instantané.
   api.get('/health', (req, res) => {
@@ -132,32 +148,7 @@ function createApp(db, opts = {}) {
 
   api.get('/templates', (req, res) => res.json(listTemplates()));
 
-  // Inscription d'un nouveau client : crée l'établissement et son administrateur.
-  api.post('/auth/signup', (req, res) => {
-    const { organization, name, email, password, template, accept_terms: acceptTerms } = req.body || {};
-    if (!organization || !name || !EMAIL_RE.test(email || '')) {
-      return res.status(400).json({ error: 'Établissement, nom et e-mail valides requis' });
-    }
-    if (acceptTerms !== true) {
-      return res.status(400).json({ error: 'Vous devez accepter les CGV et la politique de confidentialité' });
-    }
-    if (template && !TEMPLATES[template]) return res.status(400).json({ error: 'Modèle de métier inconnu' });
-    checkPassword(password);
-    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
-      return res.status(409).json({ error: 'Un compte existe déjà avec cet e-mail' });
-    }
-    const hash = bcrypt.hashSync(password, 10);
-    const user = db.transaction(() => {
-      const org = db.prepare('INSERT INTO organizations (name, trial_ends_at, terms_accepted_at, terms_version) VALUES (?,?,?,?)')
-        .run(String(organization).trim(), trialEnd(), nowIso(), TERMS_VERSION);
-      if (template) applyTemplate(db, Number(org.lastInsertRowid), template);
-      const info = db
-        .prepare("INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?,?,?,?, 'admin')")
-        .run(org.lastInsertRowid, email.trim(), hash, String(name).trim());
-      return db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
-    })();
-    res.status(201).json({ token: signToken(user), user: publicUser(user) });
-  });
+  // Pas d'inscription publique : seuls les opérateurs du portail (/portal) créent les clients.
 
   api.post('/auth/login', loginLimiter(), (req, res) => {
     const { email, password } = req.body || {};
@@ -165,6 +156,7 @@ function createApp(db, opts = {}) {
     if (!user || !user.active || !bcrypt.compareSync(String(password || ''), user.password_hash)) {
       return res.status(401).json({ error: 'Identifiants incorrects' });
     }
+    recordLogin(user);
     res.json({ token: signToken(user), user: publicUser(user) });
   });
 
@@ -211,10 +203,17 @@ function createApp(db, opts = {}) {
         .run(bcrypt.hashSync(password, 10), at, user.id);
       db.prepare('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(at, user.id);
     })();
+    recordLogin(user);
     res.json({ token: signToken(user), user: publicUser(user) });
   });
 
-  const kiosk = createKiosk(db, { limiter: loginLimiter({ max: 60 }) });
+  const kiosk = createKiosk(db, { limiter: loginLimiter({ max: 60 }), onLogin: recordLogin });
+
+  // ---------- Portail prestataire (jetons et table d'utilisateurs distincts de ceux des clients) ----------
+  const portal = createPortal(db, {
+    mailer, billing, photos, purgeOrganization, limiter: loginLimiter({ max: 5 }), baseUrl: opts.baseUrl,
+  });
+  api.use('/portal', portal.router);
   api.use('/kiosk', kiosk.kiosk);
 
   // ---------- Authentifié ----------
@@ -228,6 +227,7 @@ function createApp(db, opts = {}) {
       organization: publicOrg(org),
       access: billing.access(org),
       terms: { version: TERMS_VERSION, outdated: org.terms_version !== TERMS_VERSION },
+      support: process.env.SUPPORT_EMAIL || process.env.LEGAL_EMAIL || null,
     });
   });
 
@@ -270,12 +270,7 @@ function createApp(db, opts = {}) {
       if (String(req.body?.confirm || '').trim() !== org.name) {
         return res.status(400).json({ error: 'Saisissez exactement le nom de l\'établissement pour confirmer' });
       }
-      await billing.cancelSubscription(org);
-      db.transaction(() => {
-        for (const t of ['audit_log', 'reminder_log']) db.prepare(`DELETE FROM ${t} WHERE org_id = ?`).run(org.id);
-        db.prepare('DELETE FROM organizations WHERE id = ?').run(org.id);
-      })();
-      photos.removeOrgFiles(org.id);
+      await purgeOrganization(org);
       res.status(204).end();
     } catch (e) {
       next(e);
@@ -571,6 +566,11 @@ function createApp(db, opts = {}) {
   // L'application monopage est servie sous /app ; la racine / y redirige.
   const spa = (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
   app.get(['/app', /^\/app\/.*/], spa);
+  // Portail prestataire : page à part, jamais indexée par les moteurs de recherche.
+  app.get(['/portal', /^\/portal\/.*/], (req, res) => {
+    res.set('X-Robots-Tag', 'noindex, nofollow');
+    res.sendFile(path.join(__dirname, '..', 'public', 'portal.html'));
+  });
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {

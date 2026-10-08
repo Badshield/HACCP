@@ -20,8 +20,9 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 🥜 **Allergènes** | Les 14 allergènes réglementaires (INCO) par plat : un client demande « sans gluten ? », on touche l'allergène et la liste des plats se filtre. Tableau imprimable pour la salle. |
 | 🎓 **Formations** | Suivi des formations hygiène du personnel et de leurs échéances. |
 | 📄 **Rapports** | Classeur HACCP PDF complet ou par registre, exports CSV (Excel). |
-| 🧩 **Modèles de métiers** | À l'inscription : restaurant, boulangerie, boucherie, traiteur, food-truck ou restauration collective. Équipements, plan de nettoyage et durées de vie préremplis. |
-| 💳 **Abonnements** | Essai gratuit de 30 jours, paiement Stripe, portail client, lecture seule sans abonnement (voir [docs/STRIPE.md](docs/STRIPE.md)). |
+| 🧩 **Modèles de métiers** | À la création du client : restaurant, boulangerie, boucherie, traiteur, food-truck ou restauration collective. Équipements, plan de nettoyage et durées de vie préremplis. |
+| 🛠️ **Portail prestataire** | Réservé à vous et votre SAV (`/portal`) : création des clients, rattachement des adresses e-mail, invitations, pilotage de l'accès (essai, actif, suspendu), historique de tout ce que font les clients, registres et classeur PDF en lecture seule, notes SAV. **Pas d'inscription publique** (voir [docs/PORTAIL.md](docs/PORTAIL.md)). |
+| 💳 **Abonnements** | Accès piloté depuis le portail (essai, actif, suspendu) ; paiement en ligne Stripe en option, lecture seule sans abonnement (voir [docs/STRIPE.md](docs/STRIPE.md)). |
 | 📷 **Photos** | Bon de livraison, étiquette, produit non conforme, traces de nuisibles : prises au téléphone, compressées automatiquement, ajoutées en annexe du classeur PDF. |
 | ⚖️ **Pages légales et RGPD** | Mentions légales, CGV, confidentialité, contrat de sous-traitance ; acceptation tracée, export complet et suppression du compte (voir [docs/LEGAL.md](docs/LEGAL.md)). |
 | 🔔 **Rappels et alertes** | E-mail si les températures ne sont pas relevées à l'heure, alerte immédiate à chaque non-conformité, récapitulatif du soir (voir [docs/EMAILS.md](docs/EMAILS.md)). |
@@ -42,7 +43,7 @@ Le langage visuel suit Material 3 (Google) : surfaces tonales, formes arrondies 
 
 ### Points forts pour un usage professionnel
 
-- **Multi-clients (SaaS)** : chaque établissement a son espace, les données sont strictement isolées (testé).
+- **Multi-clients (SaaS)** : chaque établissement a son espace, les données sont strictement isolées (testé). Les clients sont créés par vous seul, depuis le portail ; ils n'accèdent qu'à leur propre espace.
 - **Registres non modifiables** : un relevé ne peut être ni modifié ni supprimé, ce qui préserve sa valeur de preuve. Chaque saisie est horodatée et attribuée à un utilisateur, avec un journal d'audit.
 - **Rôles** : *Administrateur* (gère tout), *Responsable* (gère équipements, plan de nettoyage, fournisseurs…), *Employé* (saisit les relevés).
 - **Application installable (PWA)** sur tablette et smartphone, interface adaptée au tactile.
@@ -59,7 +60,8 @@ Prérequis : Node.js 20 ou plus récent.
 ```bash
 npm install
 npm run seed     # crée un établissement de démo : demo@haccp.local / demo1234
-npm start        # http://localhost:3000 ouvre directement la page de connexion
+npm start        # http://localhost:3000 : page de connexion des clients ; http://localhost:3000/portal : portail prestataire
+                 # (en local, le seed crée operateur@haccp.local / operateur1234 ; sinon : npm run operator -- vous@exemple.fr "Votre Nom")
 ```
 
 Tests automatisés :
@@ -97,6 +99,9 @@ Guides complémentaires : [paiements Stripe](docs/STRIPE.md), [e-mails](docs/EMA
 server/
   index.js      démarrage
   app.js        API : authentification, utilisateurs, non-conformités, tableau de bord
+  portal.js     portail prestataire : clients, accès, invitations, historique, notes SAV (jetons séparés)
+  tenants.js    création des clients et de leurs utilisateurs, invitations par lien
+  operator-cli.js  création / réinitialisation d'un opérateur du portail
   today.js      page « Aujourd'hui » : tâches du jour, progression, série, semaine (fuseau de l'établissement)
   modules.js    déclaration des modules HACCP (champs, règles, NC automatiques)
   resource.js   moteur générique : validation, isolation par client, registres en ajout seul
@@ -121,6 +126,7 @@ public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)
   home.js       page « Aujourd'hui », « Saisir », « Alertes », « Plus » et assistant d'action corrective
   photos.js     prise de photo, compression, galerie
   app.js        routage, authentification, pages des registres
+  portal.html / portal.js   le portail prestataire (page à part)
 test/           tests automatisés (node:test)
 docs/           feuille de route produit et commerciale
 ```

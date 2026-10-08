@@ -15,7 +15,7 @@ Les informations de votre entreprise sont lues dans les variables `LEGAL_*` et `
 
 ## Ce que fait l'application
 
-- **Acceptation à l'inscription** : case à cocher obligatoire. La date et la version acceptées sont enregistrées.
+- **Acceptation à la première connexion** : les clients étant créés par le prestataire, l'administrateur doit accepter les CGV, la politique de confidentialité et le contrat de sous-traitance avant de continuer. La date et la version acceptées sont enregistrées.
 - **Mise à jour des CGV** : changez `TERMS_VERSION` dans `server/legal.js`. À leur prochaine connexion, les administrateurs doivent accepter la nouvelle version, et l'acceptation est tracée dans le journal d'audit.
 - **Droit à la portabilité** : Paramètres → Mes données → export complet au format JSON.
 - **Droit à l'effacement** : Paramètres → Mes données → suppression définitive. Il faut saisir le mot de passe et le nom de l'établissement. La suppression résilie l'abonnement Stripe et efface les données et les photos.
