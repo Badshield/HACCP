@@ -37,15 +37,21 @@ Tapez cette adresse dans le navigateur de la tablette, connectée **à la même 
 
 ## 5. Quoi tester ? (environ 30 minutes)
 
+L'application s'organise en 4 onglets : **Aujourd'hui**, **Saisir**, **Alertes** et **Plus**.
+
 - [ ] **Page d'accueil** (http://localhost:3000) : lisez-la comme si vous étiez un restaurateur.
-- [ ] **Inscription** d'un nouvel établissement avec un modèle de métier (*Essai gratuit*) : les équipements et le plan de nettoyage sont-ils réalistes pour ce métier ?
-- [ ] **Températures** : saisissez une valeur normale, puis une valeur hors limite (8 °C dans un frigo). L'alerte et la non-conformité s'affichent-elles ?
-- [ ] **Non-conformités** : clôturez-en une avec une action corrective.
-- [ ] **Réception** avec une photo prise à la tablette ou au téléphone.
-- [ ] **Étiquette DLC** : imprimez-en une.
-- [ ] **Tablette de cuisine** : *Paramètres* → donnez un code PIN à un employé → *Utiliser cet appareil comme tablette de cuisine* → connectez-vous avec le code.
-- [ ] **Rapports** : éditez le classeur HACCP en PDF. Est-il présentable devant un inspecteur ?
-- [ ] **Allergènes** : ajoutez un plat et imprimez le tableau.
+- [ ] **Inscription** d'un nouvel établissement avec un modèle de métier (*Essai gratuit*) : les équipements et le plan de nettoyage sont-ils réalistes pour ce métier ? Le cadre « Premiers pas » en haut de *Aujourd'hui* est-il clair ?
+- [ ] **Aujourd'hui → températures** : tapez une valeur normale dans une carte (le message vert apparaît dès que vous tapez), puis une valeur hors limite (8 °C dans un frigo). L'assistant « Qu'avez-vous fait ? » s'ouvre-t-il ? Est-il compréhensible sans explication ?
+- [ ] **Congélateur** : le signe « − » est-il déjà choisi ? Pensez-vous à le changer pour un frigo ?
+- [ ] **Journée complète** : une fois tous les relevés et nettoyages faits, la jauge se remplit et des confettis apparaissent. Trouvez-vous cela agréable, ou superflu ?
+- [ ] **Alertes** : réglez une alerte (« Problème réglé »), puis recommencez en choisissant « Action notée, à suivre » : l'alerte doit rester ouverte.
+- [ ] **Saisir → Réception** avec une photo prise à la tablette ou au téléphone. Le bouton « Plus de détails » (lot, commentaire) est-il facile à trouver ?
+- [ ] **Saisir → Étiquette DLC** : touchez un produit fréquent, enregistrez et imprimez l'étiquette.
+- [ ] **Saisir → Refroidissement** : saisissez la durée en minutes (par exemple 90) et la température finale. Un refroidissement de 150 minutes doit être signalé non conforme.
+- [ ] **Plus → Allergènes** : ajoutez un plat, puis touchez un allergène pour filtrer la liste, et imprimez le tableau.
+- [ ] **Tablette de cuisine** : *Plus → Paramètres* → donnez un code PIN à un employé → *Utiliser cet appareil comme tablette de cuisine* → touchez le nom, tapez le code puis ✓.
+- [ ] **Plus → Préparer un contrôle** : éditez le classeur HACCP en PDF. Est-il présentable devant un inspecteur ?
+- [ ] **Sur téléphone, puis sur ordinateur** : la mise en page reste-t-elle lisible et les boutons assez gros ?
 
 Notez tout ce qui vous surprend, vous gêne ou manque. Ce sont ces retours qui rendront le logiciel vendable.
 

@@ -17,6 +17,7 @@ const { mountLegal, TERMS_VERSION } = require('./legal');
 const { createKiosk, hashPin } = require('./kiosk');
 const { mountLanding } = require('./landing');
 const { snapshotAge } = require('./backup');
+const { mountToday } = require('./today');
 const { createReminders, normalizeTimes, defaultBaseUrl } = require('./reminders');
 
 const RESET_TTL_MS = 60 * 60000;
@@ -500,7 +501,23 @@ function createApp(db, opts = {}) {
     res.json(db.prepare(`${ncSelect} WHERE n.id = ?`).get(id));
   });
 
+  // Note l'action corrective en cours SANS clore l'alerte (ex. « technicien appelé »).
+  api.put('/non-conformities/:id/action', (req, res) => {
+    const id = Number(req.params.id);
+    const nc = db.prepare('SELECT * FROM non_conformities WHERE id = ? AND org_id = ?').get(id, req.user.org_id);
+    if (!nc) return res.status(404).json({ error: 'Introuvable' });
+    if (nc.status === 'closed') return res.status(400).json({ error: 'Cette alerte est déjà clôturée' });
+    const action = coerce('corrective_action', { type: 'string', required: true, max: 2000, label: 'Action' }, req.body?.corrective_action);
+    db.prepare('UPDATE non_conformities SET corrective_action = ? WHERE id = ?').run(action, id);
+    db.prepare('INSERT INTO audit_log (org_id, user_id, action, entity, entity_id) VALUES (?,?,?,?,?)')
+      .run(req.user.org_id, req.user.id, 'update', 'non_conformities', id);
+    res.json(db.prepare(`${ncSelect} WHERE n.id = ?`).get(id));
+  });
+
   // ---------- Tableau de bord ----------
+  // Page « Aujourd'hui » : liste du jour, progression et série (opts.now : horloge injectable pour les tests).
+  mountToday(api, db, { now: opts.now });
+
   api.get('/dashboard', (req, res) => {
     const org = req.user.org_id;
     const today = new Date().toISOString().slice(0, 10);

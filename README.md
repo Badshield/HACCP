@@ -8,16 +8,16 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 
 | Module | Ce qu'il fait |
 |---|---|
-| 🌡️ **Températures** | Relevé rapide par équipement (frigos, chambres froides, congélateurs, vitrines, maintien au chaud). Seuils réglementaires par défaut, alerte immédiate en cas de dépassement. |
+| 🌡️ **Températures** | Relevé rapide par équipement (frigos, chambres froides, congélateurs, vitrines, maintien au chaud) : on tape la valeur, l'application dit tout de suite si c'est dans la norme. Seuils réglementaires par défaut, alerte immédiate en cas de dépassement. |
 | 🧽 **Plan de nettoyage** | Tâches par zone avec produit, méthode et fréquence. Liste « à faire » du jour, validation en un geste. |
 | 📦 **Réceptions** | Contrôle des livraisons : température selon la catégorie, emballage, DLC, n° de lot, fournisseur. |
-| ❄️ **Refroidissement rapide** | +63 °C → +10 °C en moins de 2 h, calcul automatique de la durée et de la conformité. |
+| ❄️ **Refroidissement rapide** | +63 °C → +10 °C en moins de 2 h : on saisit la durée et la température finale, la conformité est calculée automatiquement. |
 | 🔥 **Remise en température** | Atteindre +63 °C en moins d'1 h. |
 | 🍟 **Huiles de friture** | Suivi du taux de composés polaires (≤ 25 %). |
 | 🏷️ **Étiquettes DLC secondaires** | Produits entamés, fabriqués ou décongelés : DLC calculée, étiquette imprimable. |
 | 🐭 **Nuisibles** | Registre des passages du prestataire et des contrôles. |
-| ⚠️ **Non-conformités** | Créées **automatiquement** à chaque relevé hors limite. Clôture uniquement avec une action corrective. |
-| 🥜 **Allergènes** | Tableau des 14 allergènes réglementaires (INCO) par plat, imprimable pour la salle. |
+| ⚠️ **Non-conformités** | Créées **automatiquement** à chaque relevé hors limite. Un assistant demande « Qu'avez-vous fait ? » (déplacé les produits, appelé le frigoriste…) ; clôture uniquement avec une action corrective. |
+| 🥜 **Allergènes** | Les 14 allergènes réglementaires (INCO) par plat : un client demande « sans gluten ? », on touche l'allergène et la liste des plats se filtre. Tableau imprimable pour la salle. |
 | 🎓 **Formations** | Suivi des formations hygiène du personnel et de leurs échéances. |
 | 📄 **Rapports** | Classeur HACCP PDF complet ou par registre, exports CSV (Excel). |
 | 🧩 **Modèles de métiers** | À l'inscription : restaurant, boulangerie, boucherie, traiteur, food-truck ou restauration collective. Équipements, plan de nettoyage et durées de vie préremplis. |
@@ -28,7 +28,16 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 🔑 **Mot de passe oublié** | Lien sécurisé à usage unique, déconnexion des autres sessions. |
 | 🔢 **Tablette de cuisine** | Chaque employé touche son nom et tape son code PIN : saisies signées par la bonne personne, sans e-mail ni mot de passe partagé. Droits limités, déconnexion après 3 min d'inactivité, blocage après 5 erreurs. |
 | 🌐 **Page d'accueil commerciale** | Présentation, tarifs (synchronisés avec la facturation), FAQ, formulaire de demande de démo envoyé par e-mail. |
-| 📊 **Tableau de bord** | Équipements à relever, nettoyages en retard, NC ouvertes, taux de conformité sur 30 jours. |
+| 🏠 **Page « Aujourd'hui »** | Ce qu'il reste à faire aujourd'hui, avec une jauge de progression, la série de jours réussis et la semaine en un coup d'œil. Un écran unique pour l'équipe, sans menu à fouiller. |
+| 📊 **Statistiques** | Taux de conformité sur 30 jours, non-conformités, activité (pour le responsable). |
+
+### Une interface pensée pour les mains pleines
+
+- **4 onglets seulement** : *Aujourd'hui* (la liste du jour), *Saisir* (réception, étiquette, refroidissement… en grosses tuiles), *Alertes*, *Plus* (le reste : équipements, statistiques, paramètres).
+- **Un geste par tâche** : relevé de température = taper la valeur + OK ; nettoyage = « C'est fait ».
+- **Retour immédiat** : ✓ vert quand c'est conforme, message d'aide et assistant d'action corrective quand ça ne l'est pas, confettis quand la journée est complète (désactivés si l'appareil demande « réduire les animations »).
+- **Les formulaires ne demandent que l'essentiel** ; lot, commentaire et autres précisions sont sous « Plus de détails ». Aucun champ qui influe sur la conformité n'est prérempli à l'insu de l'utilisateur.
+- **Gros boutons, tactile d'abord**, barre d'onglets en bas sur téléphone et tablette, menu latéral sur ordinateur.
 
 ### Points forts pour un usage professionnel
 
@@ -87,6 +96,7 @@ Guides complémentaires : [paiements Stripe](docs/STRIPE.md), [e-mails](docs/EMA
 server/
   index.js      démarrage
   app.js        API : authentification, utilisateurs, non-conformités, tableau de bord
+  today.js      page « Aujourd'hui » : tâches du jour, progression, série, semaine (fuseau de l'établissement)
   modules.js    déclaration des modules HACCP (champs, règles, NC automatiques)
   resource.js   moteur générique : validation, isolation par client, registres en ajout seul
   rules.js      règles de conformité réglementaires (fonctions pures, testées)
@@ -105,11 +115,16 @@ deploy/         installation du serveur, Caddy (HTTPS), sauvegardes restic, mise
   db.js         schéma SQLite
   seed.js       données de démonstration
 public/         interface web (HTML/CSS/JS sans étape de compilation, PWA)
+  core.js       outils partagés : appels API, formulaires, formats, fenêtres
+  home.js       page « Aujourd'hui », « Saisir », « Alertes », « Plus » et assistant d'action corrective
+  photos.js     prise de photo, compression, galerie
+  fun.js        retours visuels : coche, confettis, vibration
+  app.js        routage, authentification, pages des registres
 test/           tests automatisés (node:test)
 docs/           feuille de route produit et commerciale
 ```
 
-Pour ajouter un nouveau registre : créer la table dans `db.js`, le déclarer dans `modules.js` (champs + règle de conformité), l'ajouter à `REGISTERS` dans `reports.js`, puis créer sa page avec `logPage(...)` dans `public/app.js`.
+Pour ajouter un nouveau registre : créer la table dans `db.js`, le déclarer dans `modules.js` (champs + règle de conformité), l'ajouter à `REGISTERS` dans `reports.js`, puis créer sa page avec `logPage(...)` dans `public/app.js` et la placer dans `PAGE_PLACE` (onglet *Saisir* ou *Plus*) ainsi que, si besoin, dans les tuiles de `capturePage` / `MORE` de `public/home.js`.
 
 ## Avertissement
 

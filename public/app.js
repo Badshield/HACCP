@@ -1,264 +1,61 @@
 // Pack Hygiène HACCP – application monopage (sans dépendance, sans build).
 
-const store = {
-  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* stockage indisponible */ } },
-  del: (k) => { try { localStorage.removeItem(k); } catch { /* stockage indisponible */ } },
-};
-const state = { deviceToken: store.get('deviceToken'), token: localStorage.getItem('token'), user: null, org: null, access: null, ref: null, openNc: 0 };
-const app = document.getElementById('app');
-
-// ---------------------------------------------------------------- utilitaires
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const fmtDT = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '');
-const fmtD = (d) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '');
-const pad = (n) => String(n).padStart(2, '0');
-const localNow = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const isoDay = (offset = 0) => { const d = new Date(Date.now() + offset * 86400000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const conf = (c) => (c ? '<span class="pill ok">Conforme</span>' : '<span class="pill bad">Non conforme</span>');
-const can = (role) => ({ employee: 1, manager: 2, admin: 3 })[state.user?.role] >= ({ employee: 1, manager: 2, admin: 3 })[role];
-const FREQ = { daily: 'Quotidienne', weekly: 'Hebdomadaire', monthly: 'Mensuelle', after_use: 'Après utilisation' };
-const LABEL_KIND = { opened: 'Ouverture', prepared: 'Fabrication', defrosted: 'Décongélation' };
-const ROLES = { admin: 'Administrateur', manager: 'Responsable', employee: 'Employé' };
-
-function toast(msg, error = false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `show${error ? ' error' : ''}`;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.className = ''; }, 3000);
-}
-
-async function api(path, { method = 'GET', body, raw } = {}) {
-  const kioskCall = path.startsWith('/kiosk');
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(state.token && !kioskCall ? { Authorization: `Bearer ${state.token}` } : {}),
-      ...(kioskCall && state.deviceToken ? { 'X-Device-Token': state.deviceToken } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (res.status === 401) {
-    const data = await res.clone().json().catch(() => ({}));
-    if (data.code === 'device_invalid') {
-      // Tablette retirée par un responsable : retour à la connexion classique.
-      state.deviceToken = null;
-      store.del('deviceToken');
-      if (state.token && state.user?.kiosk) { logout(); throw new Error('Cette tablette a été retirée'); }
-      if (kioskCall) { route(); throw new Error('Cette tablette a été retirée'); }
-    }
-    if (state.token && !kioskCall) { logout(); throw new Error('Session expirée'); }
-  }
-  if ([502, 503, 504].includes(res.status)) throw new Error('Mise à jour du service en cours : réessayez dans quelques secondes');
-  if (raw) { if (!res.ok) throw new Error('Téléchargement impossible'); return res; }
-  if (res.status === 204) return null;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erreur');
-  return data;
-}
-
-async function download(path, filename) {
-  try {
-    const res = await api(path, { raw: true });
-    const url = URL.createObjectURL(await res.blob());
-    const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (e) { toast(e.message, true); }
-}
-
-/** Convertit les valeurs d'un formulaire selon la définition des champs. */
-function readForm(form, fields) {
-  const out = {};
-  for (const f of fields) {
-    const el = form.elements[f.name];
-    if (!el) continue;
-    if (f.type === 'checkbox') out[f.name] = el.checked;
-    else if (f.type === 'datetime') out[f.name] = el.value ? new Date(el.value).toISOString() : '';
-    else out[f.name] = el.value;
-  }
-  return out;
-}
-
-function fieldHtml(f, value) {
-  const v = value ?? (typeof f.default === 'function' ? f.default() : f.default) ?? '';
-  const req = f.required ? 'required' : '';
-  const cls = f.full ? 'full' : '';
-  if (f.type === 'hidden') return `<input type="hidden" name="${f.name}" value="${esc(v)}">`;
-  if (f.type === 'checkbox') {
-    // labelHtml : libellé contenant des liens (texte statique, jamais issu d'une saisie).
-    return `<label class="check ${cls}"><input type="checkbox" name="${f.name}" ${v ? 'checked' : ''} ${req}> <span>${f.labelHtml || esc(f.label)}</span></label>`;
-  }
-  let input;
-  if (f.type === 'select') {
-    const opts = (typeof f.options === 'function' ? f.options() : f.options)
-      .map(([val, lab]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab)}</option>`).join('');
-    input = `<select name="${f.name}" ${req}>${f.required ? '' : `<option value="">${esc(f.emptyLabel || '—')}</option>`}${opts}</select>`;
-  } else if (f.type === 'textarea') {
-    input = `<textarea name="${f.name}" ${req} placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
-  } else {
-    const type = { datetime: 'datetime-local', number: 'number', date: 'date', email: 'email', password: 'password' }[f.type] || 'text';
-    const val = f.type === 'datetime' && v && v.includes('Z') ? localNow(new Date(v)) : v;
-    input = `<input type="${type}" name="${f.name}" value="${esc(val)}" ${req} ${f.type === 'number' ? `step="${f.step || 'any'}" inputmode="decimal"` : ''} placeholder="${esc(f.placeholder || '')}">`;
-  }
-  return `<label class="${cls}">${esc(f.label)}${f.required ? ' *' : ''}${input}</label>`;
-}
-
-function formHtml(fields, values = {}, submit = 'Enregistrer') {
-  return `<form class="form">${fields.map((f) => fieldHtml(f, values[f.name])).join('')}
-    <div><button type="submit">${esc(submit)}</button></div></form>`;
-}
-
-function tableHtml(columns, rows, { rowClass } = {}) {
-  if (!rows.length) return '<p class="muted">Aucun enregistrement.</p>';
-  return `<div class="table-wrap"><table><thead><tr>${columns.map((c) => `<th>${esc(c.label)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map((r) => `<tr class="${rowClass ? rowClass(r) : ''}">${columns.map((c) => `<td>${c.html ? c.html(r) : esc(c.get(r))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-}
-
-function bindForm(root, fields, onSubmit) {
-  const form = root.querySelector('form');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = form.querySelector('button[type=submit]');
-    btn.disabled = true;
-    try { await onSubmit(readForm(form, fields), form); } catch (err) { toast(err.message, true); } finally { btn.disabled = false; }
-  });
-  return form;
-}
-
-function modal(title, html) {
-  const dlg = document.createElement('dialog');
-  dlg.innerHTML = `<div class="row"><h2>${esc(title)}</h2><span class="spacer"></span><button class="secondary small" data-close>✕</button></div>${html}`;
-  document.body.append(dlg);
-  dlg.querySelector('[data-close]').onclick = () => dlg.close();
-  dlg.addEventListener('close', () => dlg.remove());
-  dlg.showModal();
-  return dlg;
-}
-
-// ---------------------------------------------------------------- photos
-
-const PHOTO_INPUT = `<label class="full photo-input">📷 Photos (facultatif : bon de livraison, étiquette, produit...)
-  <input type="file" accept="image/*" capture="environment" multiple data-photos></label>`;
-
-/** Redimensionne (1600 px max) et compresse en JPEG avant l'envoi : rapide même en 4G. */
-async function compressImage(file, max = 1600, quality = 0.8) {
-  const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap) throw new Error(`${file.name} : format d'image non pris en charge`);
-  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-  const canvas = Object.assign(document.createElement('canvas'), {
-    width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale),
-  });
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close?.();
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-}
-
-async function uploadPhotos(entity, entityId, files) {
-  let ok = 0;
-  for (const file of files) {
-    const blob = await compressImage(file);
-    const res = await fetch(`/api/photos?entity=${entity}&entity_id=${entityId}`, {
-      method: 'POST', headers: { 'Content-Type': 'image/jpeg', Authorization: `Bearer ${state.token}` }, body: blob,
-    });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Envoi de la photo impossible');
-    ok++;
-  }
-  return ok;
-}
-
-/** Ajoute le champ photo à un formulaire et renvoie une fonction qui envoie les fichiers choisis. */
-function attachPhotoInput(form) {
-  form.querySelector('button[type=submit]').parentElement.insertAdjacentHTML('beforebegin', PHOTO_INPUT);
-  const input = form.querySelector('[data-photos]');
-  return async (entity, id) => {
-    if (!input.files.length) return 0;
-    try { return await uploadPhotos(entity, id, [...input.files]); } catch (e) { toast(e.message, true); return 0; }
-  };
-}
-
-const photoCell = (entity) => ({
-  label: 'Photos',
-  html: (r) => `<button type="button" class="secondary small" data-gallery="${entity}:${r.id}">📷 ${r.photo_count ? r.photo_count : '+'}</button>`,
-});
-
-function bindGalleries(root, onChange) {
-  root.querySelectorAll('[data-gallery]').forEach((b) => {
-    b.onclick = () => { const [entity, id] = b.dataset.gallery.split(':'); openGallery(entity, Number(id), onChange); };
-  });
-}
-
-async function photoUrl(id) {
-  const res = await api(`/photos/${id}`, { raw: true });
-  return URL.createObjectURL(await res.blob());
-}
-
-/** Galerie d'un enregistrement : affichage, ajout, suppression (auteur, 15 min). */
-async function openGallery(entity, id, onChange) {
-  const dlg = modal('Photos', '<div class="gallery" data-items><p class="muted">Chargement…</p></div><div class="row" style="margin-top:1rem"><label class="btn secondary">+ Ajouter des photos<input type="file" accept="image/*" capture="environment" multiple hidden data-add></label></div>');
-  const urls = [];
-  dlg.addEventListener('close', () => urls.forEach((u) => URL.revokeObjectURL(u)));
-  const box = dlg.querySelector('[data-items]');
-  const render = async () => {
-    const photos = await api(`/photos?entity=${entity}&entity_id=${id}`);
-    if (!photos.length) { box.innerHTML = '<p class="muted">Aucune photo pour cet enregistrement.</p>'; return; }
-    box.innerHTML = photos.map((p) => `<figure data-photo="${p.id}"><a target="_blank" rel="noopener"><img alt="Photo ${p.id}"></a>
-      <figcaption>${esc(fmtDT(p.created_at))} – ${esc(p.user_name || '')}
-      ${p.user_id === state.user.id && Date.now() - Date.parse(p.created_at) < 15 * 60000 ? `<button class="danger small" data-del="${p.id}">Supprimer</button>` : ''}</figcaption></figure>`).join('');
-    for (const p of photos) {
-      const url = await photoUrl(p.id);
-      urls.push(url);
-      const fig = box.querySelector(`[data-photo="${p.id}"]`);
-      fig.querySelector('img').src = url;
-      fig.querySelector('a').href = url;
-    }
-    box.querySelectorAll('[data-del]').forEach((b) => {
-      b.onclick = async () => {
-        if (!confirm('Supprimer cette photo ?')) return;
-        try { await api(`/photos/${b.dataset.del}`, { method: 'DELETE' }); await render(); onChange?.(); } catch (e) { toast(e.message, true); }
-      };
-    });
-  };
-  dlg.querySelector('[data-add]').onchange = async (e) => {
-    try {
-      box.insertAdjacentHTML('afterbegin', '<p class="muted" data-wait>Envoi en cours…</p>');
-      const n = await uploadPhotos(entity, id, [...e.target.files]);
-      toast(`${n} photo(s) ajoutée(s) ✓`);
-      await render();
-      onChange?.();
-    } catch (err) { toast(err.message, true); box.querySelector('[data-wait]')?.remove(); }
-  };
-  await render();
-}
+import {
+  hooks, store, state, app, esc, fmtDT, fmtD, localNow, isoDay, conf, can, FREQ, LABEL_KIND, ROLES,
+  firstName, plural, fmtTemp, toast, api, download, formHtml, tableHtml, bindForm, modal, refreshBadge,
+} from './core.js';
+import { attachPhotoInput, bindGalleries, photoCell, openGallery, uploadPhotos } from './photos.js';
+import { flash } from './fun.js';
+import {
+  todayPage, capturePage, alertsPage, morePage, tempCardHtml, bindTempCards, cleanCardHtml, actionSheet,
+} from './home.js';
 
 // ---------------------------------------------------------------- pages génériques
 
 /**
- * Page « registre » : formulaire de saisie + historique filtrable.
+ * Page « registre » : un formulaire court, puis l'historique replié.
  * Les enregistrements sont non modifiables (valeur de preuve HACCP).
+ *  - bare : page intégrée à une autre (pas de titre)
+ *  - transform(data) : adapte les valeurs saisies avant l'envoi
+ *  - formSummary : si fourni, le formulaire est replié sous ce libellé (HTML statique)
+ *  - ncKind / ncTitle : pilotent la feuille « Qu'avez-vous fait ? » quand l'enregistrement est hors limite
  */
-function logPage({ title, intro, endpoint, fields, columns, register, after, query = '', photos }) {
+function logPage({
+  title, icon = '', intro, endpoint, fields, columns, register, after, query = '', photos,
+  bare = false, transform, formSummary, ncKind = 'other', ncTitle,
+}) {
   if (photos) columns = [...columns, photoCell(photos)];
   return async (main) => {
     let from = isoDay(-7);
     let to = isoDay();
-    main.innerHTML = `<h1>${esc(title)}</h1>${intro ? `<p class="muted">${intro}</p>` : ''}
-      <div class="card"><h2>Nouvel enregistrement</h2><div data-form></div></div>
-      <div class="card"><div class="row no-print"><h2>Historique</h2><span class="spacer"></span>
-        <label>Du <input type="date" data-from value="${from}"></label><label>Au <input type="date" data-to value="${to}"></label>
-        ${register ? '<button class="secondary" data-pdf>PDF</button><button class="secondary" data-csv>CSV</button>' : ''}
-      </div><div data-list></div></div>`;
+    const formCard = '<div class="card form-card" data-form></div>';
+    main.innerHTML = `${bare ? '' : `<h1>${icon ? `${icon} ` : ''}${esc(title)}</h1>${intro ? `<p class="lead">${intro}</p>` : ''}`}
+      ${formSummary ? `<details class="block quick-form"><summary>${formSummary}</summary>${formCard}</details>` : formCard}
+      <details class="block history"${can('manager') ? ' open' : ''}>
+        <summary data-count>📜 Historique</summary>
+        <div class="row no-print filters">
+          <label>Du <input type="date" data-from value="${from}"></label><label>Au <input type="date" data-to value="${to}"></label>
+          <span class="spacer"></span>
+          ${register ? '<button type="button" class="secondary" data-pdf>PDF</button><button type="button" class="secondary" data-csv>Excel</button>' : ''}
+        </div><div data-list></div></details>`;
     const formBox = main.querySelector('[data-form]');
     const renderForm = () => {
       formBox.innerHTML = formHtml(fields);
       const sendPhotos = photos ? attachPhotoInput(formBox.querySelector('form')) : null;
       bindForm(formBox, fields, async (data, form) => {
-        const row = await api(endpoint, { method: 'POST', body: data });
+        const row = await api(endpoint, { method: 'POST', body: transform ? transform(data) : data });
         const n = sendPhotos ? await sendPhotos(photos, row.id) : 0;
-        const withPhotos = n ? ` (${n} photo${n > 1 ? 's' : ''})` : '';
-        toast(row.compliant === 0 ? `⚠ Enregistré${withPhotos} – NON CONFORME : une non-conformité a été ouverte` : `Enregistré ✓${withPhotos}`, row.compliant === 0);
+        if (row.compliant === 0) {
+          refreshBadge();
+          if (row.non_conformity_id) {
+            await actionSheet({
+              id: row.non_conformity_id, kind: ncKind, detail: 'Hors limite : une alerte a été ouverte.',
+              title: ncTitle ? ncTitle(row) : (row.product || row.fryer || row.kind || title),
+            });
+          }
+        } else {
+          flash('ok', n ? `Enregistré avec ${plural(n, 'photo', 'photos')}` : 'Enregistré !');
+        }
         if (after) after(row);
         renderForm();
         load();
@@ -268,6 +65,7 @@ function logPage({ title, intro, endpoint, fields, columns, register, after, que
     const list = main.querySelector('[data-list]');
     const load = async () => {
       const rows = await api(`${endpoint}?from=${from}&to=${to}${query}`);
+      main.querySelector('[data-count]').textContent = `📜 Historique (${rows.length})`;
       list.innerHTML = tableHtml(columns, rows, { rowClass: (r) => (r.compliant === 0 ? 'nc' : '') });
       bindGalleries(list, load);
     };
@@ -322,7 +120,7 @@ async function dashboardPage(main) {
   const d = await api('/dashboard');
   const pct = (s) => (s.total ? `${Math.round((100 * s.ok) / s.total)} %` : '—');
   const unchecked = d.equipment.filter((e) => !e.checked_today);
-  main.innerHTML = `<h1>Tableau de bord</h1>
+  main.innerHTML = `<h1>📊 Statistiques</h1>
     <div class="kpis">
       <div class="kpi"><div class="v">${d.equipment.length - unchecked.length}/${d.equipment.length}</div><div class="l">Équipements relevés aujourd'hui</div></div>
       <div class="kpi"><div class="v">${d.cleaningDue.length}</div><div class="l">Tâches de nettoyage à faire</div></div>
@@ -344,19 +142,28 @@ async function dashboardPage(main) {
 }
 
 async function temperaturesPage(main) {
-  const equipment = await api('/equipment');
-  const dash = await api('/dashboard');
-  const byId = Object.fromEntries(dash.equipment.map((e) => [e.id, e]));
+  const drafts = {};
+  main.innerHTML = `<h1>🌡️ Températures</h1>
+    <p class="lead">Tapez la température affichée sur l'appareil, puis OK. Si elle sort de la norme, l'application vous guide.</p>
+    <div data-status></div><div data-cards></div><div data-history></div>`;
+  const cards = main.querySelector('[data-cards]');
+  let list = (await api('/today')).temperatures;
+
+  // Saisie détaillée (heure précise, commentaire, photo) : repliée, pour les cas particuliers.
   const history = logPage({
-    title: 'Historique des relevés',
+    bare: true,
+    title: 'Relevés de température',
     endpoint: '/temperatures',
     register: 'temperatures',
     photos: 'temperature_logs',
+    ncKind: 'temp',
+    ncTitle: (r) => `${r.equipment_name} : ${fmtTemp(r.value)} °C`,
+    formSummary: '✍️ Saisie détaillée : heure précise, commentaire, photo',
     fields: [
-      { name: 'equipment_id', label: 'Équipement', type: 'select', required: true, options: equipment.map((e) => [e.id, e.name]) },
+      { name: 'equipment_id', label: 'Équipement', type: 'select', required: true, options: list.map((e) => [e.id, e.name]) },
       { name: 'value', label: 'Température (°C)', type: 'number', required: true, step: '0.1' },
-      { name: 'recorded_at', label: 'Date / heure', type: 'datetime', default: () => localNow() },
-      { name: 'comment', label: 'Commentaire / action corrective', type: 'text' },
+      { name: 'recorded_at', label: 'Date / heure', type: 'datetime', advanced: true, default: () => localNow() },
+      { name: 'comment', label: 'Commentaire / action corrective', advanced: true, full: true },
     ],
     columns: [
       { label: 'Date', get: (r) => fmtDT(r.recorded_at) },
@@ -368,75 +175,72 @@ async function temperaturesPage(main) {
       { label: 'Par', get: (r) => r.user_name },
     ],
   });
-  main.innerHTML = `<h1>Relevés de températures</h1>
-    <p class="muted">Relevé rapide : saisissez la température affichée et validez. Une alerte et une non-conformité sont créées automatiquement en cas de dépassement.</p>
-    <div class="grid" data-quick></div><div data-history></div>`;
-  const quick = main.querySelector('[data-quick]');
-  quick.innerHTML = equipment.map((e) => {
-    const s = byId[e.id] || {};
-    const cls = s.checked_today ? (s.last_compliant ? 'done' : 'alert') : '';
-    return `<form class="card equip-card ${cls}" data-eq="${e.id}">
-      <strong>${esc(e.name)}</strong>
-      <span class="range">Plage : ${e.min_temp ?? '—'} à ${e.max_temp ?? '—'} °C ${s.checked_today ? `· dernier : ${s.last_value} °C` : ''}</span>
-      <div class="row"><input type="number" step="0.1" inputmode="decimal" name="value" required placeholder="°C" style="flex:1">
-      <button type="submit">OK</button></div></form>`;
-  }).join('') || '<p class="muted">Aucun équipement. <a href="#/equipment">Ajoutez vos frigos et congélateurs</a>.</p>';
-  quick.querySelectorAll('form').forEach((f) => {
-    f.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const row = await api('/temperatures', { method: 'POST', body: { equipment_id: Number(f.dataset.eq), value: f.elements.value.value } });
-        f.classList.remove('done', 'alert');
-        f.classList.add(row.compliant ? 'done' : 'alert');
-        f.elements.value.value = '';
-        toast(row.compliant ? `${row.equipment_name} : ${row.value} °C ✓` : `⚠ ${row.equipment_name} : ${row.value} °C HORS PLAGE`, !row.compliant);
-        refreshBadge();
-        history(main.querySelector('[data-history]'));
-      } catch (err) { toast(err.message, true); }
-    });
+
+  const render = () => {
+    const allDone = list.length > 0 && list.every((t) => t.done);
+    main.querySelector('[data-status]').innerHTML = allDone ? '<p class="all-done">✅ Tous les relevés du jour sont faits. Bravo !</p>' : '';
+    cards.innerHTML = list.map((t) => tempCardHtml(t, drafts[t.id])).join('') || `<div class="empty"><div class="big-emoji">🧊</div>
+      <h2>Aucun équipement</h2><p>${can('manager') ? 'Ajoutez vos frigos et congélateurs pour commencer les relevés.' : 'Demandez à votre responsable de configurer les équipements.'}</p>
+      ${can('manager') ? '<a class="btn" href="#/equipment">Ajouter mes équipements</a>' : ''}</div>`;
+    temps.refresh();
+  };
+  const temps = bindTempCards(cards, () => list, {
+    drafts,
+    onSaved: async () => {
+      list = (await api('/today')).temperatures;
+      render();
+      history(main.querySelector('[data-history]'));
+    },
   });
+  render();
   await history(main.querySelector('[data-history]'));
 }
 
 async function cleaningPage(main) {
-  const dash = await api('/dashboard');
-  const tasks = await api('/cleaning-tasks');
-  const history = logPage({
-    title: 'Historique du nettoyage',
-    endpoint: '/cleaning-logs',
-    register: 'cleaning',
-    photos: 'cleaning_logs',
-    fields: [
-      { name: 'task_id', label: 'Tâche', type: 'select', required: true, options: tasks.map((t) => [t.id, `${t.zone} – ${t.name}`]) },
-      { name: 'done_at', label: 'Date / heure', type: 'datetime', default: () => localNow() },
-      { name: 'comment', label: 'Commentaire', type: 'text' },
-    ],
-    columns: [
-      { label: 'Date', get: (r) => fmtDT(r.done_at) },
-      { label: 'Zone', get: (r) => r.zone },
-      { label: 'Élément', get: (r) => r.task_name },
-      { label: 'Commentaire', get: (r) => r.comment },
-      { label: 'Par', get: (r) => r.user_name },
-    ],
-  });
-  main.innerHTML = `<h1>Plan de nettoyage</h1>
-    <div class="card"><div class="row"><h2>À faire</h2><span class="spacer"></span><a href="#/cleaning-tasks">Gérer le plan →</a></div><div data-due></div></div>
-    <div data-history></div>`;
-  const due = main.querySelector('[data-due]');
-  due.innerHTML = dash.cleaningDue.map((t) => `<div class="list-item"><div><strong>${esc(t.name)}</strong>
-      <div class="muted">${esc(t.zone)} · ${FREQ[t.frequency]}${t.product ? ` · ${esc(t.product)}` : ''}${t.method ? `<br>${esc(t.method)}` : ''}</div></div>
-      <span class="spacer"></span><button data-done="${t.id}">✓ Fait</button></div>`).join('') || '<p class="muted">Tout est à jour ✓</p>';
-  due.querySelectorAll('[data-done]').forEach((b) => {
-    b.onclick = async () => {
-      try {
-        await api('/cleaning-logs', { method: 'POST', body: { task_id: Number(b.dataset.done) } });
-        b.closest('.list-item').remove();
-        toast('Tâche validée ✓');
-        history(main.querySelector('[data-history]'));
-      } catch (e) { toast(e.message, true); }
-    };
-  });
-  await history(main.querySelector('[data-history]'));
+  const render = async () => {
+    const tasks = (await api('/today')).cleaning;
+    const due = tasks.filter((t) => t.due);
+    const onDemand = tasks.filter((t) => t.frequency === 'after_use');
+    const done = tasks.filter((t) => t.done && t.frequency !== 'after_use');
+    main.innerHTML = `<h1>🧽 Nettoyage</h1>
+      <section class="block"><h2><span>À faire aujourd'hui</span><small>${done.length}/${due.length + done.length}</small></h2>
+        ${due.length ? due.map(cleanCardHtml).join('') : '<p class="all-done">✅ Tout est nettoyé, bravo !</p>'}</section>
+      ${onDemand.length ? `<section class="block"><h2>Après chaque usage</h2><p class="muted">À cocher quand vous venez de nettoyer.</p>${onDemand.map(cleanCardHtml).join('')}</section>` : ''}
+      ${done.length ? `<details class="block done-list"><summary>✅ Fait aujourd'hui (${done.length})</summary><ul>${done.map((t) => `<li>${esc(t.name)} <span>${esc(t.zone)}</span></li>`).join('')}</ul></details>` : ''}
+      <div data-history></div>`;
+    main.querySelectorAll('[data-clean]').forEach((b) => {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await api('/cleaning-logs', { method: 'POST', body: { task_id: Number(b.dataset.clean) } });
+          flash('ok', 'Bien joué !');
+          render();
+        } catch (e) { toast(e.message, true); b.disabled = false; }
+      };
+    });
+    const all = await api('/cleaning-tasks');
+    await logPage({
+      bare: true,
+      title: 'Nettoyage',
+      endpoint: '/cleaning-logs',
+      register: 'cleaning',
+      photos: 'cleaning_logs',
+      formSummary: '✍️ Noter un nettoyage fait à une autre heure',
+      fields: [
+        { name: 'task_id', label: 'Tâche', type: 'select', required: true, options: all.map((t) => [t.id, `${t.zone} – ${t.name}`]) },
+        { name: 'done_at', label: 'Date / heure', type: 'datetime', advanced: true, default: () => localNow() },
+        { name: 'comment', label: 'Commentaire', advanced: true, full: true },
+      ],
+      columns: [
+        { label: 'Date', get: (r) => fmtDT(r.done_at) },
+        { label: 'Zone', get: (r) => r.zone },
+        { label: 'Élément', get: (r) => r.task_name },
+        { label: 'Commentaire', get: (r) => r.comment },
+        { label: 'Par', get: (r) => r.user_name },
+      ],
+    })(main.querySelector('[data-history]'));
+  };
+  await render();
 }
 
 async function receptionsPage(main) {
@@ -444,21 +248,24 @@ async function receptionsPage(main) {
   const cats = state.ref.receptionCategories;
   const limit = (c) => (c.max != null ? ` (≤ ${c.max} °C)` : c.min != null ? ` (≥ ${c.min} °C)` : '');
   return logPage({
-    title: 'Contrôle à réception',
-    intro: 'Contrôlez chaque livraison : température, emballage, étiquetage et DLC. Les produits non conformes doivent être refusés ou isolés.',
+    icon: '📦',
+    title: 'Réception de marchandises',
+    intro: 'Une livraison arrive : contrôlez la température, l\'emballage et la date limite.',
     endpoint: '/receptions',
     register: 'receptions',
     photos: 'receptions',
+    ncKind: 'reception',
+    ncTitle: (r) => `Réception : ${r.product}`,
     fields: [
       { name: 'supplier_id', label: 'Fournisseur', type: 'select', options: suppliers.map((s) => [s.id, s.name]) },
       { name: 'product', label: 'Produit', required: true },
       { name: 'category', label: 'Catégorie', type: 'select', required: true, options: Object.entries(cats).map(([k, c]) => [k, c.label + limit(c)]) },
       { name: 'temperature', label: 'Température (°C)', type: 'number', step: '0.1' },
-      { name: 'lot_number', label: 'N° de lot' },
       { name: 'dlc', label: 'DLC / DDM', type: 'date' },
-      { name: 'packaging_ok', label: 'Emballage et étiquetage conformes', type: 'checkbox', default: true },
-      { name: 'received_at', label: 'Date / heure', type: 'datetime', default: () => localNow() },
-      { name: 'comment', label: 'Commentaire / action (refus, avoir...)', full: true },
+      { name: 'packaging_ok', label: 'Emballage et étiquetage corrects', type: 'checkbox', default: true },
+      { name: 'lot_number', label: 'N° de lot', advanced: true },
+      { name: 'received_at', label: 'Date / heure', type: 'datetime', advanced: true, default: () => localNow() },
+      { name: 'comment', label: 'Commentaire (refus, avoir…)', advanced: true, full: true },
     ],
     columns: [
       { label: 'Date', get: (r) => fmtDT(r.received_at) },
@@ -476,58 +283,81 @@ async function receptionsPage(main) {
 const processColumns = [
   { label: 'Produit', get: (r) => r.product },
   { label: 'Lot', get: (r) => r.lot_number },
-  { label: 'Début', get: (r) => `${fmtDT(r.start_at)} (${r.start_temp ?? '?'} °C)` },
+  { label: 'Début', get: (r) => `${fmtDT(r.start_at)}${r.start_temp != null ? ` (${r.start_temp} °C)` : ''}` },
   { label: 'Fin', get: (r) => `${fmtDT(r.end_at)} (${r.end_temp} °C)` },
   { label: 'Durée', get: (r) => `${r.duration_min} min` },
   { label: 'Statut', html: (r) => conf(r.compliant) },
   { label: 'Par', get: (r) => r.user_name },
 ];
-const processFields = (type, startTemp) => [
+// On saisit la durée mesurée ; les heures de début et de fin en sont déduites. Aucune valeur
+// n'est préremplie à la place de l'employé : durée et température finale sont obligatoires.
+const processFields = (type) => [
   { name: 'type', type: 'hidden', default: type },
-  { name: 'product', label: 'Produit / préparation', required: true },
-  { name: 'lot_number', label: 'N° de lot' },
-  { name: 'start_at', label: 'Début', type: 'datetime', required: true, default: () => localNow(new Date(Date.now() - 3600000)) },
-  { name: 'start_temp', label: 'T° de départ (°C)', type: 'number', step: '0.1', default: startTemp },
-  { name: 'end_at', label: 'Fin', type: 'datetime', required: true, default: () => localNow() },
-  { name: 'end_temp', label: 'T° finale à cœur (°C)', type: 'number', step: '0.1', required: true },
-  { name: 'comment', label: 'Commentaire / action corrective', full: true },
+  { name: 'product', label: 'Quel produit ?', required: true },
+  {
+    name: 'duration', type: 'number', step: '1', min: 0, required: true,
+    label: type === 'cooling' ? 'Durée du refroidissement (minutes)' : 'Durée de la remise en température (minutes)',
+    placeholder: type === 'cooling' ? 'Ex. 90' : 'Ex. 45',
+  },
+  { name: 'end_temp', label: 'Température finale à cœur (°C)', type: 'number', step: '0.1', required: true },
+  { name: 'lot_number', label: 'N° de lot', advanced: true },
+  { name: 'start_temp', label: 'Température de départ (°C)', type: 'number', step: '0.1', advanced: true },
+  { name: 'end_at', label: 'Heure de fin', type: 'datetime', advanced: true, default: () => localNow() },
+  { name: 'comment', label: 'Commentaire', advanced: true, full: true },
 ];
+const processTransform = (d) => {
+  const end = d.end_at || new Date().toISOString();
+  const minutes = Number(String(d.duration).replace(',', '.'));
+  return { ...d, end_at: end, start_at: new Date(Date.parse(end) - minutes * 60000).toISOString() };
+};
 
 const pages = {
-  dashboard: { title: 'Tableau de bord', icon: '📊', group: 'Quotidien', render: dashboardPage },
-  temperatures: { title: 'Températures', icon: '🌡️', group: 'Quotidien', render: temperaturesPage },
-  cleaning: { title: 'Nettoyage', icon: '🧽', group: 'Quotidien', render: cleaningPage },
-  receptions: { title: 'Réceptions', icon: '📦', group: 'Quotidien', render: receptionsPage },
+  // Les quatre onglets de la barre de navigation.
+  today: { title: 'Aujourd\'hui', icon: '🏠', render: todayPage },
+  saisir: { title: 'Saisir', icon: '➕', render: capturePage },
+  nonconformities: { title: 'Alertes', icon: '🔔', render: alertsPage },
+  plus: { title: 'Plus', icon: '☰', render: morePage },
+  // Pages ouvertes depuis « Saisir » ou « Plus » (voir PAGE_PLACE).
+  dashboard: { title: 'Statistiques', icon: '📊', role: 'manager', render: dashboardPage },
+  temperatures: { title: 'Températures', icon: '🌡️', render: temperaturesPage },
+  cleaning: { title: 'Nettoyage', icon: '🧽', render: cleaningPage },
+  receptions: { title: 'Réceptions', icon: '📦', render: receptionsPage },
   cooling: {
-    title: 'Refroidissement', icon: '❄️', group: 'Quotidien',
+    title: 'Refroidissement', icon: '❄️',
     render: (main) => logPage({
+      icon: '❄️',
       title: 'Refroidissement rapide',
-      intro: 'Objectif : passer de +63 °C à +10 °C à cœur en moins de 2 heures (cellule de refroidissement).',
+      intro: 'Objectif : passer de +63 °C à +10 °C à cœur en moins de 2 heures.',
       endpoint: '/processes', register: 'processes', query: '&type=cooling', photos: 'process_logs',
-      fields: processFields('cooling', 63), columns: processColumns,
+      fields: processFields('cooling'), transform: processTransform, columns: processColumns,
+      ncKind: 'process', ncTitle: (r) => `Refroidissement : ${r.product}`,
     })(main),
   },
   reheating: {
-    title: 'Remise en T°', icon: '🔥', group: 'Quotidien',
+    title: 'Remise en T°', icon: '♨️',
     render: (main) => logPage({
+      icon: '♨️',
       title: 'Remise en température',
       intro: 'Objectif : atteindre +63 °C à cœur en moins d\'1 heure.',
       endpoint: '/processes', register: 'processes', query: '&type=reheating', photos: 'process_logs',
-      fields: processFields('reheating', 3), columns: processColumns,
+      fields: processFields('reheating'), transform: processTransform, columns: processColumns,
+      ncKind: 'process', ncTitle: (r) => `Remise en température : ${r.product}`,
     })(main),
   },
   oil: {
-    title: 'Huiles de friture', icon: '🍟', group: 'Quotidien',
+    title: 'Huiles de friture', icon: '🍟',
     render: (main) => logPage({
-      title: 'Contrôle des huiles de friture',
+      icon: '🍟',
+      title: 'Huile de friture',
       intro: 'Le taux de composés polaires ne doit pas dépasser 25 %. Au-delà, l\'huile doit être changée.',
       endpoint: '/oil-checks', register: 'oil',
+      ncTitle: (r) => `Huile ${r.fryer} : ${r.polar_percent} %`,
       fields: [
-        { name: 'fryer', label: 'Friteuse', required: true, default: 'Friteuse 1' },
-        { name: 'polar_percent', label: '% composés polaires', type: 'number', step: '0.5', required: true },
-        { name: 'oil_changed', label: 'Huile changée', type: 'checkbox' },
-        { name: 'checked_at', label: 'Date / heure', type: 'datetime', default: () => localNow() },
-        { name: 'comment', label: 'Commentaire', full: true },
+        { name: 'fryer', label: 'Quelle friteuse ?', required: true, default: 'Friteuse 1' },
+        { name: 'polar_percent', label: '% composés polaires', type: 'number', step: '0.5', min: 0, required: true },
+        { name: 'oil_changed', label: 'J\'ai changé l\'huile', type: 'checkbox' },
+        { name: 'checked_at', label: 'Date / heure', type: 'datetime', advanced: true, default: () => localNow() },
+        { name: 'comment', label: 'Commentaire', advanced: true, full: true },
       ],
       columns: [
         { label: 'Date', get: (r) => fmtDT(r.checked_at) },
@@ -540,19 +370,20 @@ const pages = {
     })(main),
   },
   labels: {
-    title: 'Étiquettes DLC', icon: '🏷️', group: 'Traçabilité',
+    title: 'Étiquettes DLC', icon: '🏷️',
     render: async (main) => {
       const presets = await api('/shelf-lives');
       await logPage({
-      title: 'Étiquettes de traçabilité (DLC secondaire)',
-      intro: 'Produits entamés, fabriqués ou décongelés : la DLC secondaire est calculée automatiquement. Imprimez l\'étiquette après enregistrement.',
+      icon: '🏷️',
+      title: 'Étiquette DLC',
+      intro: 'La date limite est calculée toute seule. L\'étiquette s\'imprime après l\'enregistrement.',
       endpoint: '/labels', register: 'labels',
       fields: [
-        { name: 'product', label: 'Produit', required: true },
-        { name: 'kind', label: 'Type', type: 'select', required: true, options: Object.entries(LABEL_KIND) },
-        { name: 'start_at', label: 'Date d\'ouverture / fabrication', type: 'datetime', required: true, default: () => localNow() },
-        { name: 'shelf_life_days', label: 'Durée de vie (jours)', type: 'number', step: '1', required: true, default: 3 },
-        { name: 'lot_number', label: 'N° de lot' },
+        { name: 'product', label: 'Quel produit ?', required: true },
+        { name: 'kind', label: 'Il vient d\'être…', type: 'select', required: true, options: [['opened', 'ouvert'], ['prepared', 'fabriqué'], ['defrosted', 'décongelé']] },
+        { name: 'shelf_life_days', label: 'Se conserve (jours)', type: 'number', step: '1', min: 0, required: true, default: 3 },
+        { name: 'lot_number', label: 'N° de lot', advanced: true },
+        { name: 'start_at', label: 'Date et heure d\'ouverture / fabrication', type: 'datetime', required: true, advanced: true, default: () => localNow() },
       ],
       columns: [
         { label: 'Produit', get: (r) => r.product },
@@ -569,16 +400,19 @@ const pages = {
     },
   },
   pests: {
-    title: 'Nuisibles', icon: '🐭', group: 'Traçabilité',
+    title: 'Nuisibles', icon: '🐭',
     render: (main) => logPage({
-      title: 'Plan de lutte contre les nuisibles',
+      icon: '🐭',
+      title: 'Lutte contre les nuisibles',
+      intro: 'Passage du prestataire ou contrôle des pièges : notez ce que vous avez constaté.',
       endpoint: '/pest-controls', register: 'pests', photos: 'pest_controls',
+      ncTitle: (r) => `Nuisibles : ${r.kind}`,
       fields: [
-        { name: 'kind', label: 'Contrôle', required: true, placeholder: 'Passage prestataire, contrôle appâts...' },
-        { name: 'provider', label: 'Prestataire' },
+        { name: 'kind', label: 'Quel contrôle ?', required: true, placeholder: 'Passage du prestataire, contrôle des pièges…' },
         { name: 'compliant', label: 'Aucune trace de nuisibles', type: 'checkbox', default: true },
-        { name: 'checked_at', label: 'Date / heure', type: 'datetime', default: () => localNow() },
-        { name: 'findings', label: 'Constats', type: 'textarea', full: true },
+        { name: 'findings', label: 'Ce que vous avez constaté', type: 'textarea', full: true },
+        { name: 'provider', label: 'Prestataire', advanced: true },
+        { name: 'checked_at', label: 'Date / heure', type: 'datetime', advanced: true, default: () => localNow() },
       ],
       columns: [
         { label: 'Date', get: (r) => fmtDT(r.checked_at) },
@@ -589,10 +423,9 @@ const pages = {
       ],
     })(main),
   },
-  nonconformities: { title: 'Non-conformités', icon: '⚠️', group: 'Traçabilité', render: ncPage },
-  allergens: { title: 'Allergènes', icon: '🥜', group: 'Traçabilité', render: allergensPage },
+  allergens: { title: 'Allergènes', icon: '🥜', render: allergensPage },
   trainings: {
-    title: 'Formations', icon: '🎓', group: 'Traçabilité',
+    title: 'Formations', icon: '🎓',
     render: refPage({
       title: 'Formations du personnel',
       intro: 'Formation hygiène alimentaire obligatoire (14 h) pour au moins une personne en restauration commerciale.',
@@ -613,9 +446,9 @@ const pages = {
       ],
     }),
   },
-  reports: { title: 'Rapports / Contrôle', icon: '📄', group: 'Gestion', render: reportsPage },
+  reports: { title: 'Préparer un contrôle', icon: '📄', role: 'manager', render: reportsPage },
   equipment: {
-    title: 'Équipements', icon: '🧊', group: 'Gestion',
+    title: 'Équipements', icon: '🧊',
     render: refPage({
       title: 'Équipements frigorifiques et maintien au chaud',
       intro: 'Laissez les plages vides pour appliquer les seuils réglementaires par défaut du type choisi.',
@@ -634,7 +467,7 @@ const pages = {
     }),
   },
   'cleaning-tasks': {
-    title: 'Plan de nettoyage', icon: '📋', group: 'Gestion',
+    title: 'Plan de nettoyage', icon: '📋',
     render: refPage({
       title: 'Plan de nettoyage et désinfection',
       endpoint: '/cleaning-tasks',
@@ -655,7 +488,7 @@ const pages = {
     }),
   },
   suppliers: {
-    title: 'Fournisseurs', icon: '🚚', group: 'Gestion',
+    title: 'Fournisseurs', icon: '🚚',
     render: refPage({
       title: 'Fournisseurs',
       endpoint: '/suppliers',
@@ -676,7 +509,7 @@ const pages = {
     }),
   },
   'shelf-lives': {
-    title: 'Durées de vie', icon: '⏳', group: 'Gestion',
+    title: 'Durées de vie', icon: '⏳',
     render: refPage({
       title: 'Durées de vie (DLC secondaires)',
       intro: 'Produits fréquents proposés sur la page Étiquettes. Durées indicatives : validez-les dans votre Plan de Maîtrise Sanitaire.',
@@ -693,9 +526,23 @@ const pages = {
       ],
     }),
   },
-  billing: { title: 'Abonnement', icon: '💳', group: 'Gestion', role: 'admin', render: billingPage },
-  settings: { title: 'Paramètres', icon: '⚙️', group: 'Gestion', render: settingsPage },
+  billing: { title: 'Abonnement', icon: '💳', role: 'admin', render: billingPage },
+  settings: { title: 'Paramètres', icon: '⚙️', render: settingsPage },
 };
+
+// Chaque page appartient à un onglet ; `parent` ajoute un lien de retour « ‹ Saisir » ou « ‹ Plus ».
+const PAGE_PLACE = {
+  today: { tab: 'today' }, saisir: { tab: 'saisir' }, nonconformities: { tab: 'nonconformities' }, plus: { tab: 'plus' },
+  temperatures: { tab: 'saisir', parent: 'saisir' }, cleaning: { tab: 'saisir', parent: 'saisir' },
+  receptions: { tab: 'saisir', parent: 'saisir' }, cooling: { tab: 'saisir', parent: 'saisir' },
+  reheating: { tab: 'saisir', parent: 'saisir' }, oil: { tab: 'saisir', parent: 'saisir' },
+  labels: { tab: 'saisir', parent: 'saisir' }, pests: { tab: 'saisir', parent: 'saisir' },
+  allergens: { tab: 'plus', parent: 'plus' }, dashboard: { tab: 'plus', parent: 'plus' }, reports: { tab: 'plus', parent: 'plus' },
+  equipment: { tab: 'plus', parent: 'plus' }, 'cleaning-tasks': { tab: 'plus', parent: 'plus' }, suppliers: { tab: 'plus', parent: 'plus' },
+  'shelf-lives': { tab: 'plus', parent: 'plus' }, trainings: { tab: 'plus', parent: 'plus' }, billing: { tab: 'plus', parent: 'plus' },
+  settings: { tab: 'plus', parent: 'plus' },
+};
+for (const [key, place] of Object.entries(PAGE_PLACE)) Object.assign(pages[key], place);
 
 /** Boutons « produits fréquents » qui préremplissent le formulaire d'étiquette. */
 function addPresetBar(main, presets) {
@@ -729,91 +576,81 @@ window.printLabel = (r) => {
   w.document.close();
 };
 
-async function ncPage(main) {
-  let status = 'open';
-  main.innerHTML = `<h1>Non-conformités et actions correctives</h1>
-    <p class="muted">Les non-conformités sont créées automatiquement lors d'un relevé hors limite. Chacune doit être clôturée avec l'action corrective mise en œuvre.</p>
-    <div class="card"><h2>Déclarer une non-conformité</h2><div data-form></div></div>
-    <div class="card"><div class="row"><h2>Liste</h2><span class="spacer"></span>
-      <select data-status style="width:auto"><option value="open">Ouvertes</option><option value="closed">Clôturées</option><option value="">Toutes</option></select></div>
-      <div data-list></div></div>`;
-  const fields = [
-    { name: 'description', label: 'Description', required: true, full: true },
-    { name: 'corrective_action', label: 'Action corrective immédiate', full: true },
-  ];
-  const box = main.querySelector('[data-form]');
-  box.innerHTML = formHtml(fields, {}, 'Déclarer');
-  const sendPhotos = attachPhotoInput(box.querySelector('form'));
-  bindForm(box, fields, async (data, form) => {
-    const nc = await api('/non-conformities', { method: 'POST', body: data });
-    const n = await sendPhotos('non_conformities', nc.id);
-    form.reset();
-    toast(`Déclarée${n ? ` avec ${n} photo(s)` : ''}`);
-    load();
-    refreshBadge();
-  });
-  const list = main.querySelector('[data-list]');
-  const load = async () => {
-    const rows = await api(`/non-conformities${status ? `?status=${status}` : ''}`);
-    list.innerHTML = tableHtml([
-      { label: 'Date', get: (r) => fmtDT(r.created_at) },
-      { label: 'Description', get: (r) => r.description },
-      { label: 'Action corrective', get: (r) => r.corrective_action },
-      { label: 'Statut', html: (r) => (r.status === 'open' ? '<span class="pill bad">Ouverte</span>' : `<span class="pill ok">Clôturée</span><div class="muted">${esc(fmtDT(r.closed_at))} – ${esc(r.closed_by_name)}</div>`) },
-      photoCell('non_conformities'),
-      { label: '', html: (r) => (r.status === 'open' ? `<button class="small" data-close="${r.id}">Clôturer</button>` : '') },
-    ], rows);
-    bindGalleries(list, load);
-    list.querySelectorAll('[data-close]').forEach((b) => {
-      b.onclick = () => {
-        const nc = rows.find((r) => r.id === Number(b.dataset.close));
-        const f = [{ name: 'corrective_action', label: 'Action corrective réalisée', type: 'textarea', required: true, full: true }];
-        const dlg = modal('Clôturer la non-conformité', `<p>${esc(nc.description)}</p>${formHtml(f, nc, 'Clôturer')}`);
-        bindForm(dlg, f, async (data) => {
-          await api(`/non-conformities/${nc.id}/close`, { method: 'POST', body: data });
-          dlg.close(); toast('Clôturée ✓'); load(); refreshBadge();
-        });
-      };
-    });
-  };
-  main.querySelector('[data-status]').onchange = (e) => { status = e.target.value; load(); };
-  await load();
-}
-
 async function allergensPage(main) {
   const all = state.ref.allergens;
+  const picked = new Set();
+  let recipes = [];
+  let search = '';
+  const norm = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const fields = [
     { name: 'name', label: 'Nom du plat', required: true },
     { name: 'description', label: 'Ingrédients', type: 'textarea', full: true },
   ];
+
+  const dishHtml = (r) => {
+    const hits = r.allergens.filter((a) => picked.has(a));
+    const verdict = !picked.size ? ''
+      : hits.length ? `<p class="verdict bad">⛔ Contient : ${hits.map(esc).join(', ')}</p>`
+        : `<p class="verdict ok">✅ Sans ${[...picked].map(esc).join(', ')}</p>`;
+    return `<article class="dish${hits.length ? ' has' : ''}">
+      <div class="dish-top"><div><strong>${esc(r.name)}</strong>${r.description ? `<small>${esc(r.description)}</small>` : ''}</div>
+        ${can('manager') ? `<button type="button" class="secondary small no-print" data-edit="${r.id}">Modifier</button>` : ''}</div>
+      <div class="algs">${r.allergens.length ? r.allergens.map((a) => `<span class="alg${picked.has(a) ? ' hit' : ''}">${esc(a)}</span>`).join('') : '<span class="pill ok">Aucun allergène déclaré</span>'}</div>
+      ${verdict}</article>`;
+  };
+
+  const matrixHtml = () => (recipes.length ? `<h2>${esc(state.org?.name || '')} – Allergènes présents dans nos plats</h2>
+    <table class="matrix"><thead><tr><th>Plat</th>${all.map((a) => `<th class="rot">${esc(a)}</th>`).join('')}</tr></thead>
+    <tbody>${recipes.map((r) => `<tr><td><strong>${esc(r.name)}</strong></td>${all.map((a) => `<td class="x">${r.allergens.includes(a) ? '●' : ''}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '');
+
+  const edit = (r) => {
+    const dlg = modal(r ? 'Modifier le plat' : 'Nouveau plat', `${formHtml(fields, r || {})}`);
+    const form = dlg.querySelector('form');
+    form.querySelector('button[type=submit]').parentElement.insertAdjacentHTML('beforebegin',
+      `<div class="full"><label>Allergènes présents</label><div class="allergen-grid">${all.map((a) => `<label class="check"><input type="checkbox" name="alg" value="${esc(a)}" ${r?.allergens.includes(a) ? 'checked' : ''}> ${esc(a)}</label>`).join('')}</div></div>
+       ${r ? '<div><button type="button" class="danger" data-del>Supprimer</button></div>' : ''}`);
+    form.querySelector('[data-del]')?.addEventListener('click', async () => {
+      if (!confirm('Supprimer ce plat ?')) return;
+      await api(`/recipes/${r.id}`, { method: 'DELETE' }); dlg.close(); render();
+    });
+    bindForm(dlg, fields, async (data) => {
+      data.allergens = [...form.querySelectorAll('input[name=alg]:checked')].map((i) => i.value);
+      await api(r ? `/recipes/${r.id}` : '/recipes', { method: r ? 'PUT' : 'POST', body: data });
+      dlg.close(); flash('ok', 'Plat enregistré'); render();
+    });
+  };
+
+  const drawDishes = () => {
+    const q = norm(search);
+    let list = recipes.filter((r) => !q || norm(r.name).includes(q));
+    // Les plats sûrs d'abord quand on cherche à éviter un allergène.
+    if (picked.size) list = [...list].sort((a, b) => a.allergens.some((x) => picked.has(x)) - b.allergens.some((x) => picked.has(x)));
+    const box = main.querySelector('[data-dishes]');
+    box.innerHTML = list.length ? list.map(dishHtml).join('') : `<p class="muted">${recipes.length ? 'Aucun plat ne correspond.' : 'Aucun plat enregistré pour l\'instant.'}</p>`;
+    box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => edit(recipes.find((x) => x.id === Number(b.dataset.edit))); });
+  };
+
   const render = async () => {
-    const recipes = await api('/recipes');
-    main.innerHTML = `<h1>Allergènes</h1>
-      <p class="muted">Tableau des 14 allergènes réglementaires (règlement INCO) à tenir à disposition des clients. Imprimez-le pour l'afficher en salle.</p>
-      <div class="card no-print"><div class="row"><span class="spacer"></span><button class="secondary" onclick="window.print()">Imprimer le tableau</button>${can('manager') ? '<button data-add>+ Ajouter un plat</button>' : ''}</div></div>
-      <div class="card"><h2>${esc(state.org?.name || '')} – Allergènes présents dans nos plats</h2>
-      ${recipes.length ? `<div class="table-wrap"><table class="matrix"><thead><tr><th>Plat</th>${all.map((a) => `<th class="rot">${esc(a)}</th>`).join('')}${can('manager') ? '<th class="no-print"></th>' : ''}</tr></thead>
-        <tbody>${recipes.map((r) => `<tr><td><strong>${esc(r.name)}</strong><div class="muted">${esc(r.description)}</div></td>
-        ${all.map((a) => `<td class="x">${r.allergens.includes(a) ? '●' : ''}</td>`).join('')}
-        ${can('manager') ? `<td class="no-print"><button class="secondary small" data-edit="${r.id}">Modifier</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucun plat enregistré.</p>'}</div>`;
-    const edit = (r) => {
-      const dlg = modal(r ? 'Modifier le plat' : 'Nouveau plat', `${formHtml(fields, r || {})}`);
-      const form = dlg.querySelector('form');
-      form.querySelector('button[type=submit]').parentElement.insertAdjacentHTML('beforebegin',
-        `<div class="full"><label>Allergènes présents</label><div class="allergen-grid">${all.map((a) => `<label class="check"><input type="checkbox" name="alg" value="${esc(a)}" ${r?.allergens.includes(a) ? 'checked' : ''}> ${esc(a)}</label>`).join('')}</div></div>
-         ${r ? '<div><button type="button" class="danger" data-del>Supprimer</button></div>' : ''}`);
-      form.querySelector('[data-del]')?.addEventListener('click', async () => {
-        if (!confirm('Supprimer ce plat ?')) return;
-        await api(`/recipes/${r.id}`, { method: 'DELETE' }); dlg.close(); render();
-      });
-      bindForm(dlg, fields, async (data) => {
-        data.allergens = [...form.querySelectorAll('input[name=alg]:checked')].map((i) => i.value);
-        await api(r ? `/recipes/${r.id}` : '/recipes', { method: r ? 'PUT' : 'POST', body: data });
-        dlg.close(); toast('Enregistré ✓'); render();
-      });
-    };
+    recipes = await api('/recipes');
+    main.innerHTML = `<h1>🥜 Allergènes</h1>
+      <p class="lead">Un client a une allergie ? Touchez l'allergène à éviter : les plats concernés sont signalés.</p>
+      <div class="chips" data-pick>${all.map((a) => `<button type="button" class="chip" data-a="${esc(a)}" aria-pressed="${picked.has(a)}">${esc(a)}</button>`).join('')}</div>
+      <input type="search" class="search" data-search placeholder="🔍 Chercher un plat" aria-label="Chercher un plat" autocomplete="off" value="${esc(search)}">
+      <div data-dishes></div>
+      <div class="row no-print"><button type="button" class="secondary" onclick="window.print()">🖨️ Imprimer le tableau pour la salle</button>
+        ${can('manager') ? '<button type="button" data-add>+ Ajouter un plat</button>' : ''}</div>
+      <div class="print-only">${matrixHtml()}</div>`;
+    main.querySelector('[data-pick]').addEventListener('click', (ev) => {
+      const chip = ev.target.closest('.chip');
+      if (!chip) return;
+      const name = chip.dataset.a;
+      if (picked.has(name)) picked.delete(name); else picked.add(name);
+      chip.setAttribute('aria-pressed', String(picked.has(name)));
+      drawDishes();
+    });
+    main.querySelector('[data-search]').addEventListener('input', (ev) => { search = ev.target.value; drawDishes(); });
     main.querySelector('[data-add]')?.addEventListener('click', () => edit(null));
-    main.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => edit(recipes.find((x) => x.id === Number(b.dataset.edit))); });
+    drawDishes();
   };
   await render();
 }
@@ -1151,7 +988,7 @@ async function kioskPage() {
         state.token = r.token;
         state.user = null;
         store.set('token', r.token);
-        if (location.hash === '#/temperatures') route(); else location.hash = '#/temperatures';
+        if (location.hash === '#/today') route(); else location.hash = '#/today';
       } catch (e) { err.textContent = e.message; pin = ''; draw(); }
     };
     app.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => { if (pin.length < 6) { pin += b.dataset.d; err.textContent = ''; draw(); } }; });
@@ -1209,7 +1046,7 @@ function resetPage() {
     state.token = res.token;
     state.user = null;
     localStorage.setItem('token', res.token);
-    history.replaceState(null, '', '#/dashboard');
+    history.replaceState(null, '', '#/today');
     toast('Mot de passe modifié ✓');
     route();
   });
@@ -1258,7 +1095,7 @@ async function authPage(mode = 'login') {
     state.token = res.token;
     localStorage.setItem('token', res.token);
     await loadSession();
-    location.hash = signup ? (data.template ? '#/temperatures' : '#/equipment') : '#/dashboard';
+    location.hash = signup ? (data.template ? '#/today' : '#/equipment') : '#/today';
     route();
   });
 }
@@ -1272,13 +1109,6 @@ async function loadSession() {
   state.ref = ref;
 }
 
-async function refreshBadge() {
-  try {
-    state.openNc = (await api('/non-conformities?status=open')).length;
-    const b = document.querySelector('[data-nc-badge]');
-    if (b) { b.textContent = state.openNc; b.hidden = !state.openNc; }
-  } catch { /* ignoré */ }
-}
 
 function renderBanner() {
   const box = document.querySelector('[data-banner]');
@@ -1289,34 +1119,36 @@ function renderBanner() {
   if (a.state === 'expired') html = `<div class="banner bad">🔒 Votre essai ou votre abonnement est terminé : le compte est en lecture seule (vos registres restent consultables et exportables).${link}</div>`;
   else if (a.state === 'past_due') html = `<div class="banner warn">⚠ Le dernier paiement a échoué.${can('admin') ? ' <a href="#/billing">Mettre à jour le moyen de paiement →</a>' : ''}</div>`;
   else if (a.state === 'trial' && a.trialDaysLeft <= 7) html = `<div class="banner warn">⏳ Plus que ${a.trialDaysLeft} jour(s) d'essai gratuit.${link}</div>`;
-  if (state.user?.kiosk) {
-    html = `<div class="kiosk-bar">👤 <strong>${esc(state.user.name)}</strong><span class="spacer"></span>
-      <button class="secondary small" data-switch>🔄 Changer d'utilisateur</button></div>${html}`;
-  }
   box.innerHTML = html;
-  box.querySelector('[data-switch]')?.addEventListener('click', () => logout());
 }
 
+// Quatre onglets seulement : tout le reste s'ouvre depuis « Saisir » ou « Plus ».
+const TABS = [
+  { key: 'today', icon: '🏠', label: 'Aujourd\'hui' },
+  { key: 'saisir', icon: '➕', label: 'Saisir' },
+  { key: 'nonconformities', icon: '🔔', label: 'Alertes' },
+  { key: 'plus', icon: '☰', label: 'Plus' },
+];
+
 function renderShell() {
-  const current = (location.hash.slice(2) || 'dashboard').split('?')[0];
-  let group = '';
-  const nav = Object.entries(pages).filter(([, p]) => !p.role || can(p.role)).map(([key, p]) => {
-    const head = p.group !== group ? `<div class="nav-group">${esc((group = p.group))}</div>` : '';
-    const badge = key === 'nonconformities' ? `<span class="badge" data-nc-badge ${state.openNc ? '' : 'hidden'}>${state.openNc}</span>` : '';
-    return `${head}<a href="#/${key}" class="${key === current ? 'active' : ''}"><span>${p.icon}</span> ${esc(p.title)}${badge}</a>`;
-  }).join('');
-  app.innerHTML = `<div class="topbar"><button data-menu aria-label="Menu">☰</button><strong>${esc(pages[current]?.title || '')}</strong></div>
-    <div class="layout"><nav class="sidebar">
-      <div class="brand"><img src="/icon.svg" alt=""> Pack Hygiène</div>
-      <div class="org-name">${esc(state.org?.name)}<br>${esc(state.user?.name)} · ${esc(ROLES[state.user?.role])}</div>
-      ${nav}
-      <div class="nav-group">Compte</div><a href="#" data-logout>${state.user?.kiosk ? '<span>🔄</span> Changer d\'utilisateur' : '<span>🚪</span> Déconnexion'}</a>
-      <div class="nav-legal"><a href="/legal/cgv" target="_blank">CGV</a> · <a href="/legal/confidentialite" target="_blank">Confidentialité</a> · <a href="/legal/mentions" target="_blank">Mentions légales</a></div>
-    </nav><main class="main"><div data-banner class="no-print"></div><div data-main></div></main></div>`;
+  const current = (location.hash.slice(2) || 'today').split('?')[0];
+  const page = pages[current] || pages.today;
+  const parent = page.parent && pages[page.parent];
+  const first = firstName(state.user?.name);
+  app.innerHTML = `<div class="shell">
+    <header class="appbar no-print">
+      ${parent ? `<a class="back" href="#/${page.parent}">‹ ${esc(parent.title)}</a>`
+        : `<span class="brand"><img src="/icon.svg" alt="" width="28" height="28"><b>${esc(state.org?.name || '')}</b></span>`}
+      <span class="spacer"></span>
+      ${state.user?.kiosk ? `<button type="button" class="who" data-switch>👤 ${esc(first)} · changer</button>` : `<span class="who">👤 ${esc(first)}</span>`}
+    </header>
+    <div class="content"><div data-banner class="no-print"></div><div data-main></div></div>
+    <nav class="tabbar no-print" aria-label="Navigation principale">${TABS.map((t) => `<a href="#/${t.key}" class="tab${t.key === page.tab ? ' active' : ''}"${t.key === page.tab ? ' aria-current="page"' : ''}>
+      <span class="tab-ico" aria-hidden="true">${t.icon}</span><span>${esc(t.label)}</span>
+      ${t.key === 'nonconformities' ? `<span class="badge" data-nc-badge ${state.openNc ? '' : 'hidden'}>${state.openNc}</span>` : ''}</a>`).join('')}</nav>
+  </div>`;
   renderBanner();
-  app.querySelector('[data-logout]').onclick = (e) => { e.preventDefault(); logout(); };
-  app.querySelector('[data-menu]').onclick = () => app.querySelector('.sidebar').classList.toggle('open');
-  app.querySelectorAll('.sidebar a').forEach((a) => a.addEventListener('click', () => app.querySelector('.sidebar').classList.remove('open')));
+  app.querySelector('[data-switch]')?.addEventListener('click', () => logout());
   return app.querySelector('[data-main]');
 }
 
@@ -1350,11 +1182,11 @@ async function route() {
     if (state.deviceToken && !['login', 'signup'].includes(key)) return kioskPage();
     return authPage(key === 'signup' ? 'signup' : 'login');
   }
-  if (key === 'login' || key === 'signup') { location.hash = '#/dashboard'; return; }
+  if (key === 'login' || key === 'signup') { location.hash = '#/today'; return; }
   try {
     if (!state.user) { await loadSession(); refreshBadge(); }
   } catch { return; }
-  const page = pages[key] && (!pages[key].role || can(pages[key].role)) ? pages[key] : pages.dashboard;
+  const page = pages[key] && (!pages[key].role || can(pages[key].role)) ? pages[key] : pages.today;
   const main = renderShell();
   main.innerHTML = '<p class="muted">Chargement…</p>';
   try { await page.render(main); } catch (e) { main.innerHTML = `<p class="pill bad">${esc(e.message)}</p>`; }
@@ -1362,6 +1194,8 @@ async function route() {
   armKioskIdle();
 }
 
+hooks.logout = logout;
+hooks.route = route;
 window.addEventListener('hashchange', route);
 route();
 

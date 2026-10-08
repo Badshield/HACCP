@@ -139,17 +139,19 @@ function resource(db, opts) {
         .prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`)
         .run(...cols.map((c) => row[c]));
       const id = Number(info.lastInsertRowid);
+      let ncId = null;
       if (extra.nonConformity) {
-        insertNc.run(req.user.org_id, table, id, extra.nonConformity, data.comment || null, req.user.id);
+        ncId = Number(insertNc.run(req.user.org_id, table, id, extra.nonConformity, data.comment || null, req.user.id).lastInsertRowid);
       }
       audit.run(req.user.org_id, req.user.id, 'create', table, id);
-      return id;
+      return { id, ncId };
     });
-    const id = tx();
+    const { id, ncId } = tx();
     if (extra.nonConformity && opts.onNonConformity) {
       opts.onNonConformity({ orgId: req.user.org_id, description: extra.nonConformity, author: req.user.name });
     }
-    res.status(201).json(serialize(getOne(id, req.user.org_id)));
+    // non_conformity_id : permet à l'interface de proposer tout de suite l'action corrective.
+    res.status(201).json({ ...serialize(getOne(id, req.user.org_id)), ...(ncId ? { non_conformity_id: ncId } : {}) });
   });
 
   if (mode === 'referential') {

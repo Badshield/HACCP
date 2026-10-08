@@ -18,6 +18,8 @@ Indispensable avant d'encaisser des abonnements :
 - [ ] Stockage des photos sur un service objet (S3 / Scaleway Object Storage) au-delà d'un serveur
 - [x] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
 - [x] **Page d'accueil commerciale** avec tarifs, FAQ et formulaire de demande de démo
+- [x] **Interface simplifiée et ludique** : 4 onglets (Aujourd'hui, Saisir, Alertes, Plus), jauge de progression et série de jours, saisie de température en un geste avec retour immédiat, assistant d'action corrective, formulaires réduits à l'essentiel
+- [ ] Tester l'interface avec 3 ou 4 vrais restaurateurs (observer sans aider) et ajuster : libellés, ordre des tuiles, utilité des confettis
 - [x] **Sauvegardes automatiques** chiffrées et hors site (restic vers S3, toutes les heures, restauration testée)
 - [ ] Réplication continue de la base (Litestream) pour réduire la perte de données possible à quelques secondes
 - [x] Pages légales : CGV/CGU, politique de confidentialité, mentions légales, **contrat de sous-traitance RGPD** (modèles à faire relire)
