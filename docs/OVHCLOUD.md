@@ -86,7 +86,7 @@ AWS_DEFAULT_REGION=sbg
 
 **Supprimez les anciens enregistrements A et AAAA** créés par défaut par OVH (ils pointent vers une page d'attente). Comptez de quelques minutes à quelques heures de propagation. Pour vérifier, `ping releveo.fr` doit répondre avec l'adresse du serveur.
 
-Releveo sera servi sur **https://releveo.fr**, la page d'accueil et l'application sous `/app`. `www.releveo.fr` redirige automatiquement vers `releveo.fr`.
+Releveo sera servi sur **https://releveo.fr**, l'adresse ouvre directement la page de connexion de l'application. `www.releveo.fr` redirige automatiquement vers `releveo.fr`.
 
 ## ☐ Étape 6 : installation (20 min)
 

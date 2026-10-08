@@ -214,18 +214,6 @@ CREATE TABLE IF NOT EXISTS devices (
   revoked_at TEXT
 );
 
--- Demandes de contact / démo envoyées depuis la page d'accueil.
-CREATE TABLE IF NOT EXISTS leads (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  phone TEXT,
-  business TEXT,
-  message TEXT,
-  ip TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-);
-
 CREATE TABLE IF NOT EXISTS password_resets (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

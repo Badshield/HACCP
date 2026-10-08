@@ -17,7 +17,7 @@ Indispensable avant d'encaisser des abonnements :
 - [x] **Photos** jointes aux réceptions, non-conformités, nettoyages, process et nuisibles, avec annexe dans le classeur PDF
 - [ ] Stockage des photos sur un service objet (S3 / Scaleway Object Storage) au-delà d'un serveur
 - [x] **Connexion par code PIN** pour les employés sur la tablette partagée de la cuisine
-- [x] **Page d'accueil commerciale** avec tarifs, FAQ et formulaire de demande de démo
+- [x] Pas de page vitrine : l'adresse du site ouvre directement la page de connexion (un site commercial pourra être refait à part le moment venu)
 - [x] **Interface simplifiée et sobre** (Material 3) : 4 onglets (Aujourd'hui, Saisir, Alertes, Plus), jauge de progression et jours consécutifs, saisie de température en un geste avec retour immédiat, assistant d'action corrective, formulaires réduits à l'essentiel, icônes et police embarquées
 - [ ] Tester l'interface avec 3 ou 4 vrais restaurateurs (observer sans aider) et ajuster : libellés, ordre des rubriques de « Saisir », lisibilité en plein service
 - [x] **Sauvegardes automatiques** chiffrées et hors site (restic vers S3, toutes les heures, restauration testée)

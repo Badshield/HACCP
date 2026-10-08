@@ -27,7 +27,6 @@ Il remplace les classeurs papier par une application web utilisable sur tablette
 | 🔔 **Rappels et alertes** | E-mail si les températures ne sont pas relevées à l'heure, alerte immédiate à chaque non-conformité, récapitulatif du soir (voir [docs/EMAILS.md](docs/EMAILS.md)). |
 | 🔑 **Mot de passe oublié** | Lien sécurisé à usage unique, déconnexion des autres sessions. |
 | 🔢 **Tablette de cuisine** | Chaque employé touche son nom et tape son code PIN : saisies signées par la bonne personne, sans e-mail ni mot de passe partagé. Droits limités, déconnexion après 3 min d'inactivité, blocage après 5 erreurs. |
-| 🌐 **Page d'accueil commerciale** | Présentation, tarifs (synchronisés avec la facturation), FAQ, formulaire de demande de démo envoyé par e-mail. |
 | 🏠 **Page « Aujourd'hui »** | Ce qu'il reste à faire aujourd'hui, avec une jauge de progression, le nombre de jours consécutifs sans oubli et la semaine en un coup d'œil. Un écran unique pour l'équipe, sans menu à fouiller. |
 | 📊 **Statistiques** | Taux de conformité sur 30 jours, non-conformités, activité (pour le responsable). |
 
@@ -60,7 +59,7 @@ Prérequis : Node.js 20 ou plus récent.
 ```bash
 npm install
 npm run seed     # crée un établissement de démo : demo@haccp.local / demo1234
-npm start        # page d'accueil : http://localhost:3000, application : http://localhost:3000/app
+npm start        # http://localhost:3000 ouvre directement la page de connexion
 ```
 
 Tests automatisés :
@@ -110,7 +109,6 @@ server/
   photos.js     photos jointes aux enregistrements (stockage disque, quota)
   legal.js      pages légales (CGV, confidentialité, sous-traitance RGPD)
   kiosk.js      tablette de cuisine partagée et connexion par code PIN
-  landing.js    page d'accueil commerciale et formulaire de démo
   config.js     vérification de la configuration de production
   backup.js     instantanés cohérents de la base pour les sauvegardes
 deploy/         installation du serveur, Caddy (HTTPS), sauvegardes restic, mise à jour, restauration

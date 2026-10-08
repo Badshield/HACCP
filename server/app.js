@@ -15,7 +15,6 @@ const { createMailer, compose, appUrl } = require('./mailer');
 const { createPhotos } = require('./photos');
 const { mountLegal, TERMS_VERSION } = require('./legal');
 const { createKiosk, hashPin } = require('./kiosk');
-const { mountLanding } = require('./landing');
 const { snapshotAge } = require('./backup');
 const { mountToday } = require('./today');
 const { createReminders, normalizeTimes, defaultBaseUrl } = require('./reminders');
@@ -77,7 +76,7 @@ function createApp(db, opts = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
-  // En-têtes de sécurité : en premier, pour couvrir toutes les pages (accueil, légales, application, API).
+  // En-têtes de sécurité : en premier, pour couvrir toutes les pages (légales, application, API).
   app.use((req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('X-Frame-Options', 'DENY');
@@ -98,7 +97,8 @@ function createApp(db, opts = {}) {
   });
   const photos = createPhotos(db, opts.photos);
   app.locals.mailer = mailer;
-  mountLanding(app, db, { mailer, limiter: loginLimiter({ max: 5 }) });
+  // Pas de page vitrine : l'adresse du site ouvre directement l'application (page de connexion).
+  app.get('/', (req, res) => res.redirect(302, '/app'));
   app.locals.reminders = reminders;
   // Le webhook Stripe doit recevoir le corps brut pour vérifier la signature.
   app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billing.webhook);
@@ -568,7 +568,7 @@ function createApp(db, opts = {}) {
 
   mountLegal(app);
   app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
-  // L'application monopage est servie sous /app (la page d'accueil commerciale est sur /).
+  // L'application monopage est servie sous /app ; la racine / y redirige.
   const spa = (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
   app.get(['/app', /^\/app\/.*/], spa);
 

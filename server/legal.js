@@ -137,7 +137,6 @@ const PAGES = {
         <tr><td>Facturation et comptabilité</td><td>Obligation légale</td><td>10 ans (article L. 123-22 du Code de commerce)</td></tr>
         <tr><td>Rappels et alertes par e-mail</td><td>Exécution du contrat (désactivables dans les Paramètres)</td><td>Durée de l'abonnement</td></tr>
         <tr><td>Réinitialisation du mot de passe</td><td>Exécution du contrat</td><td>Lien valable 1 heure</td></tr>
-        <tr><td>Réponse aux demandes de contact et de démonstration (formulaire du site)</td><td>Intérêt légitime / mesures précontractuelles</td><td>3 ans après le dernier contact</td></tr>
         <tr><td>Sécurité, prévention de la fraude, journal d'audit</td><td>Intérêt légitime</td><td>Durée de vie du compte</td></tr>
         </tbody></table>`],
       ['Destinataires et sous-traitants', `<p>Vos données ne sont jamais vendues. Elles sont accessibles aux seules personnes habilitées
@@ -205,7 +204,7 @@ function layout(title, body) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title><link rel="stylesheet" href="/styles.css"><link rel="icon" href="/icon.svg"></head>
 <body><main class="legal">
-<p><a href="/">← Accueil</a> · <a href="/app">Accéder à l'application</a></p>
+<p><a href="/app">← Retour à l'application</a></p>
 <h1>${esc(title)}</h1>${body}
 <hr><p class="muted">Version du ${VERSION_FR} · <a href="/legal/mentions">Mentions légales</a> · <a href="/legal/cgv">CGV</a> ·
 <a href="/legal/confidentialite">Confidentialité</a> · <a href="/legal/sous-traitance">Sous-traitance RGPD</a></p>

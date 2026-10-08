@@ -47,7 +47,6 @@ function checkConfig(env = process.env) {
 
   const legalMissing = LEGAL_VARS.filter((k) => !env[k]);
   if (legalMissing.length) warnings.push(`Mentions légales incomplètes : ${legalMissing.join(', ')}`);
-  if (!env.CONTACT_EMAIL && !env.LEGAL_EMAIL) warnings.push('CONTACT_EMAIL absent : les demandes de démo ne vous seront pas transmises');
 
   if (prod && (!env.RESTIC_REPOSITORY || !env.RESTIC_PASSWORD)) {
     warnings.push('Sauvegardes externes non configurées (RESTIC_REPOSITORY, RESTIC_PASSWORD) : une panne du serveur ferait tout perdre');

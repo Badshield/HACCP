@@ -6,7 +6,6 @@ const { openDb } = require('../server/db');
 const { createMemoryMailer } = require('../server/mailer');
 const { checkPin } = require('../server/kiosk');
 
-process.env.CONTACT_EMAIL = 'commercial@editeur.test';
 const { createApp } = require('../server/app');
 
 const mailer = createMemoryMailer();
@@ -141,36 +140,13 @@ test('tablette : impossible de se connecter avec un compte d\'un autre établiss
   assert.equal((await call('/api/kiosk', { device: deviceA })).body.users.length, 0);
 });
 
-test('page d\'accueil publique, application sous /app', async () => {
-  const home = await call('/');
-  assert.equal(home.status, 200);
-  assert.match(home.body, /<h1>Votre classeur HACCP sur tablette/);
-  assert.match(home.body, /19 €<small> HT \/ mois/);
-  assert.match(home.body, /39 €<small> HT \/ mois/);
-  assert.match(home.body, /Boulangerie \/ pâtisserie/, 'métiers repris des modèles');
-  assert.match(home.body, /"@type":"SoftwareApplication"/);
-  assert.match(home.body, /href="\/app#\/signup"/);
+test('la racine ouvre directement l\'application (page de connexion)', async () => {
+  const res = await fetch(`${base}/`, { redirect: 'manual' });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/app');
   const appPage = await call('/app');
   assert.equal(appPage.status, 200);
   assert.match(appPage.body, /src="\/app\.js"/);
-  assert.equal((await call('/landing.css')).status, 200);
+  assert.equal((await call('/landing.css')).status, 404, 'plus de page vitrine');
   assert.equal((await call('/api/inconnu')).status, 401, 'les routes API restent protégées');
-});
-
-test('formulaire de démo : validation, anti-robot, enregistrement et e-mail', async () => {
-  assert.equal((await call('/api/leads', { method: 'POST', body: { name: 'A', email: 'pas-un-email' } })).status, 400);
-  const before = db.prepare('SELECT COUNT(*) AS n FROM leads').get().n;
-  assert.equal((await call('/api/leads', { method: 'POST', body: { name: 'Robot', email: 'r@spam.test', website: 'http://spam' } })).status, 200);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM leads').get().n, before, 'robot ignoré');
-
-  const ok = await call('/api/leads', {
-    method: 'POST', body: { name: 'Sophie Martin', email: 'sophie@boulangerie.test', phone: '06 00 00 00 00', business: 'Boulangerie, 2 boutiques', message: 'Démo possible jeudi ?' },
-  });
-  assert.equal(ok.status, 201);
-  const lead = db.prepare('SELECT * FROM leads ORDER BY id DESC').get();
-  assert.equal(lead.email, 'sophie@boulangerie.test');
-  const mail = mailer.outbox.at(-1);
-  assert.deepEqual(mail.to, ['commercial@editeur.test']);
-  assert.match(mail.subject, /Sophie Martin \(Boulangerie, 2 boutiques\)/);
-  assert.match(mail.text, /Démo possible jeudi/);
 });
